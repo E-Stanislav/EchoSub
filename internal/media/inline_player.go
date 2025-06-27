@@ -123,10 +123,12 @@ func (p *InlineVideoPlayer) extractFrame(frameNumber int) (*image.Image, error) 
 
 		// Базовые параметры для быстрого старта
 		args := []string{
-			"-probesize", "32k", // Уменьшаем размер пробы
-			"-analyzeduration", "0", // Пропускаем анализ длительности
-			"-i", p.mediaFile.Path,
+			"-nostdin",
+			"-loglevel", "error",
 			"-ss", fmt.Sprintf("%.3f", frameTime.Seconds()),
+			"-probesize", "32k",
+			"-analyzeduration", "0",
+			"-i", p.mediaFile.Path,
 			"-vframes", "1",
 			"-q:v", "3",
 			"-y",
@@ -139,14 +141,11 @@ func (p *InlineVideoPlayer) extractFrame(frameNumber int) (*image.Image, error) 
 		args = append(hwAccelArgs, args...)
 
 		cmd := exec.Command("ffmpeg", args...)
-		stderr, _ := cmd.CombinedOutput()
+		stderr, err := cmd.CombinedOutput()
 		if len(stderr) > 0 {
 			log.Printf("[InlineVideoPlayer] ffmpeg stderr: %s", string(stderr))
 		}
-		if cmd.ProcessState != nil {
-			log.Printf("[InlineVideoPlayer] ffmpeg exit code: %d", cmd.ProcessState.ExitCode())
-		}
-		if err := cmd.Run(); err != nil {
+		if err != nil {
 			lastErr = fmt.Errorf("ffmpeg failed: %w", err)
 			log.Printf("[InlineVideoPlayer] ffmpeg error: %v", err)
 			continue
