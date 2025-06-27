@@ -274,7 +274,7 @@ void AudioDecoder::setupAudioOutput()
     }
     
     // Устанавливаем буфер большего размера для стабильности
-    m_audioSink->setBufferSize(32768); // Увеличиваем до 32KB
+    m_audioSink->setBufferSize(65536); // Увеличиваем до 64KB для лучшей стабильности
     
     qDebug() << "setupAudioOutput: QAudioSink created, starting...";
     m_audioDevice = m_audioSink->start();
@@ -317,7 +317,6 @@ void AudioDecoder::startAudioThread()
 void AudioDecoder::scheduleNextAudioChunk()
 {
     if (!m_isPlaying) {
-        qDebug() << "scheduleNextAudioChunk: not playing, stopping";
         if (m_audioTimer) {
             m_audioTimer->stop();
         }
@@ -325,16 +324,7 @@ void AudioDecoder::scheduleNextAudioChunk()
     }
     
     // Дополнительные проверки перед записью
-    if (!m_ffmpeg) {
-        qDebug() << "scheduleNextAudioChunk: FFmpegWrapper is null!";
-        if (m_audioTimer) {
-            m_audioTimer->stop();
-        }
-        return;
-    }
-    
-    if (!m_audioSink) {
-        qDebug() << "scheduleNextAudioChunk: QAudioSink is null!";
+    if (!m_ffmpeg || !m_audioSink) {
         if (m_audioTimer) {
             m_audioTimer->stop();
         }
@@ -343,10 +333,8 @@ void AudioDecoder::scheduleNextAudioChunk()
     
     // Проверяем состояние QAudioSink
     if (m_audioSink->state() == QAudio::StoppedState) {
-        qDebug() << "scheduleNextAudioChunk: QAudioSink is stopped, restarting...";
         m_audioDevice = m_audioSink->start();
         if (!m_audioDevice) {
-            qDebug() << "scheduleNextAudioChunk: failed to restart QAudioSink";
             if (m_audioTimer) {
                 m_audioTimer->stop();
             }
@@ -355,12 +343,8 @@ void AudioDecoder::scheduleNextAudioChunk()
     }
     
     if (!m_audioDevice) {
-        qDebug() << "scheduleNextAudioChunk: QIODevice is null, recreating...";
         m_audioDevice = m_audioSink->start();
-        if (m_audioDevice) {
-            qDebug() << "scheduleNextAudioChunk: QIODevice recreated successfully";
-        } else {
-            qDebug() << "scheduleNextAudioChunk: failed to recreate QIODevice";
+        if (!m_audioDevice) {
             return;
         }
     }
@@ -374,7 +358,11 @@ void AudioDecoder::scheduleNextAudioChunk()
     }
     qint64 audioPos = m_ffmpeg->getCurrentTime();
     qint64 avDiff = audioPos - videoPos;
-    qDebug() << "A/V sync diff:" << avDiff << "ms (audioPos:" << audioPos << ", videoPos:" << videoPos << ")";
+    
+    // Логируем только значительные расхождения
+    if (abs(avDiff) > 50) {
+        qDebug() << "A/V sync diff:" << avDiff << "ms (audioPos:" << audioPos << ", videoPos:" << videoPos << ")";
+    }
 
     // Если аудио сильно отстает от видео, ускоряем его
     if (avDiff < -100) {
@@ -394,7 +382,7 @@ void AudioDecoder::scheduleNextAudioChunk()
     
     // Получаем аудиоданные с улучшенной буферизацией
     QByteArray audioData;
-    const int chunksToBuffer = 2; // Возвращаем к 2 чанкам для лучшей буферизации
+    const int chunksToBuffer = 1; // Уменьшаем до 1 чанка для более стабильной работы
     
     for (int i = 0; i < chunksToBuffer; ++i) {
         QByteArray chunk = m_ffmpeg->getNextAudioData(1024);
@@ -408,11 +396,9 @@ void AudioDecoder::scheduleNextAudioChunk()
     }
     
     if (audioData.isEmpty()) {
-        qDebug() << "scheduleNextAudioChunk: no audio data available";
         static int emptyDataCount = 0;
         emptyDataCount++;
         if (emptyDataCount > 20) {
-            qDebug() << "scheduleNextAudioChunk: too many empty data calls, stopping";
             stop();
             emptyDataCount = 0;
         }
@@ -423,17 +409,10 @@ void AudioDecoder::scheduleNextAudioChunk()
     static int emptyDataCount = 0;
     emptyDataCount = 0;
     
-    qDebug() << "scheduleNextAudioChunk: got" << audioData.size() << "bytes (buffered)";
-    
-    // Проверяем, что m_audioDevice всё ещё валиден
-    qDebug() << "scheduleNextAudioChunk: QIODevice state: isOpen=" << m_audioDevice->isOpen() << ", isWritable=" << m_audioDevice->isWritable();
-    
     // Если устройство закрыто, пытаемся его перезапустить
     if (!m_audioDevice->isOpen()) {
-        qDebug() << "scheduleNextAudioChunk: QIODevice is not open, restarting...";
         m_audioDevice = m_audioSink->start();
         if (!m_audioDevice || !m_audioDevice->isOpen()) {
-            qDebug() << "scheduleNextAudioChunk: failed to restart QIODevice";
             if (m_audioTimer) {
                 m_audioTimer->stop();
             }
@@ -442,56 +421,52 @@ void AudioDecoder::scheduleNextAudioChunk()
     }
     
     if (!m_audioDevice->isWritable()) {
-        qDebug() << "scheduleNextAudioChunk: QIODevice is not writable!";
-        // Попробуем подождать немного и повторить
         QThread::msleep(10);
         if (!m_audioDevice->isWritable()) {
-            qDebug() << "scheduleNextAudioChunk: QIODevice still not writable after wait, stopping timer";
             if (m_audioTimer) {
                 m_audioTimer->stop();
             }
             return;
-        } else {
-            qDebug() << "scheduleNextAudioChunk: QIODevice became writable after wait";
         }
     }
     
-    // Записываем аудиоданные по частям для предотвращения переполнения буфера
+    // Записываем аудиоданные с гарантией полной записи
     qint64 totalWritten = 0;
-    const int maxChunkSize = 4096; // Максимальный размер чанка для записи
+    int maxAttempts = 10; // Максимальное количество попыток записи
     
-    while (totalWritten < audioData.size()) {
-        int currentChunkSize = qMin(maxChunkSize, audioData.size() - totalWritten);
-        QByteArray chunk = audioData.mid(totalWritten, currentChunkSize);
+    while (totalWritten < audioData.size() && maxAttempts > 0) {
+        QByteArray remainingData = audioData.mid(totalWritten);
+        qint64 written = m_audioDevice->write(remainingData);
         
-        qint64 written = m_audioDevice->write(chunk);
         if (written < 0) {
-            qDebug() << "scheduleNextAudioChunk: error writing audio chunk:" << written;
             // Если произошла ошибка записи, пытаемся перезапустить устройство
             m_audioDevice = m_audioSink->start();
             if (m_audioDevice && m_audioDevice->isWritable()) {
-                written = m_audioDevice->write(chunk);
+                written = m_audioDevice->write(remainingData);
                 if (written < 0) {
-                    qDebug() << "scheduleNextAudioChunk: error writing after restart:" << written;
-                    break;
+                    return;
                 }
             } else {
-                break;
+                return;
             }
-        } else if (written != chunk.size()) {
-            qDebug() << "scheduleNextAudioChunk: partial chunk write:" << written << "of" << chunk.size() << "bytes";
-            totalWritten += written;
-            // Небольшая пауза перед следующей попыткой
-            QThread::msleep(1);
-        } else {
-            totalWritten += written;
+        } else if (written == 0) {
+            // Если ничего не записали, ждем немного и пробуем снова
+            QThread::msleep(5);
+            maxAttempts--;
+            continue;
+        }
+        
+        totalWritten += written;
+        
+        // Если записали не все данные, ждем немного перед следующей попыткой
+        if (totalWritten < audioData.size()) {
+            QThread::msleep(2);
         }
     }
     
+    // Логируем только если не удалось записать все данные
     if (totalWritten != audioData.size()) {
-        qDebug() << "scheduleNextAudioChunk: total written:" << totalWritten << "of" << audioData.size() << "bytes";
-    } else {
-        qDebug() << "scheduleNextAudioChunk: successfully wrote" << totalWritten << "bytes";
+        qDebug() << "scheduleNextAudioChunk: incomplete write:" << totalWritten << "of" << audioData.size() << "bytes";
     }
 }
 

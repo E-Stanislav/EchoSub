@@ -196,7 +196,6 @@ QImage FFmpegWrapper::getNextFrame()
 QByteArray FFmpegWrapper::getNextAudioData(int maxSamples)
 {
     if (!m_playbackStarted || !m_isOpen || m_ctx->audioStream < 0) {
-        qDebug() << "getNextAudioData: not ready - playback:" << m_playbackStarted << "open:" << m_isOpen << "stream:" << m_ctx->audioStream;
         return QByteArray();
     }
     
@@ -206,7 +205,6 @@ QByteArray FFmpegWrapper::getNextAudioData(int maxSamples)
     
     while (attempts < maxAttempts) {
         if (!readNextPacket()) {
-            qDebug() << "getNextAudioData: no more packets after" << attempts << "attempts";
             return QByteArray(); // End of stream
         }
         
@@ -222,10 +220,7 @@ QByteArray FFmpegWrapper::getNextAudioData(int maxSamples)
                         m_currentTime = audioTime - 20; // Задержка только 20ms
                         if (m_currentTime < 0) m_currentTime = 0;
                     }
-                    qDebug() << "getNextAudioData: got" << result.size() << "bytes after" << attempts << "attempts";
                     return result;
-                } else {
-                    qDebug() << "getNextAudioData: audio frame conversion failed";
                 }
             }
         }
@@ -234,7 +229,6 @@ QByteArray FFmpegWrapper::getNextAudioData(int maxSamples)
     }
     
     // Если не удалось получить данные, возвращаем тишину для предотвращения прерываний
-    qDebug() << "getNextAudioData: failed to get audio data after" << maxAttempts << "attempts, returning silence";
     int silenceBytes = maxSamples * m_outChannels * av_get_bytes_per_sample(m_outSampleFmt);
     return QByteArray(silenceBytes, 0);
 }
@@ -664,8 +658,6 @@ QImage FFmpegWrapper::convertFrameToQImage(AVFrame *frame)
 QByteArray FFmpegWrapper::convertAudioFrame(AVFrame *frame)
 {
     if (!frame || !m_ctx->swrCtx || !m_audioBuffer) {
-        qDebug() << "convertAudioFrame: missing components - frame:" << (frame != nullptr) 
-                 << "swrCtx:" << (m_ctx->swrCtx != nullptr) << "buffer:" << (m_audioBuffer != nullptr);
         return QByteArray();
     }
     
@@ -677,13 +669,10 @@ QByteArray FFmpegWrapper::convertAudioFrame(AVFrame *frame)
     int requiredBufferSize = av_samples_get_buffer_size(nullptr, m_outChannels, 
                                                        maxOutSamples, m_outSampleFmt, 0);
     if (requiredBufferSize > m_audioBufferSize) {
-        qDebug() << "convertAudioFrame: buffer too small, reallocating from" << m_audioBufferSize 
-                 << "to" << requiredBufferSize << "bytes";
         av_freep(&m_audioBuffer);
         m_audioBuffer = (uint8_t*)av_malloc(requiredBufferSize);
         m_audioBufferSize = requiredBufferSize;
         if (!m_audioBuffer) {
-            qDebug() << "convertAudioFrame: failed to allocate larger buffer";
             return QByteArray();
         }
     }
@@ -693,13 +682,10 @@ QByteArray FFmpegWrapper::convertAudioFrame(AVFrame *frame)
                                 (const uint8_t**)frame->data, frame->nb_samples);
     
     if (outSamples < 0) {
-        qDebug() << "Error converting audio frame:" << outSamples;
         return QByteArray();
     }
     
     int outBytes = outSamples * m_outChannels * av_get_bytes_per_sample(m_outSampleFmt);
-    qDebug() << "convertAudioFrame: converted" << frame->nb_samples << "samples to" << outSamples 
-             << "samples," << outBytes << "bytes";
     
     // Создаем копию данных, чтобы избежать проблем с dangling pointer
     return QByteArray((const char*)m_audioBuffer, outBytes);
