@@ -5,6 +5,7 @@ import (
 	"image"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -205,49 +206,56 @@ func (mv *MediaView) loadMediaFileAsync(filePath string) {
 		mv.timeLabel.SetText(info.TimeString)
 	})
 
-	// Извлекаем превью (если есть видео)
+	var wg sync.WaitGroup
+
 	if mediaFile.HasVideo {
-		fyne.Do(func() {
-			mv.loadingSpinner.SetValue(0.3)
-			mv.infoLabel.SetText("Извлечение превью...")
-		})
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			fyne.Do(func() {
+				mv.loadingSpinner.SetValue(0.3)
+				mv.infoLabel.SetText("Извлечение превью...")
+			})
 
-		posterPath, err := mv.ffmpeg.ExtractPosterFrame(mediaFile)
-		if err == nil {
-			mv.updatePreview(posterPath)
-		} else {
-			// Логируем ошибку, но продолжаем работу
-			fmt.Printf("Warning: failed to extract poster frame: %v\n", err)
-		}
+			posterPath, err := mv.ffmpeg.ExtractPosterFrame(mediaFile)
+			if err == nil {
+				mv.updatePreview(posterPath)
+			} else {
+				fmt.Printf("Warning: failed to extract poster frame: %v\n", err)
+			}
+		}()
 	}
 
-	// Генерируем волнограмму (если есть аудио)
 	if mediaFile.HasAudio {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			fyne.Do(func() {
+				mv.loadingSpinner.SetValue(0.6)
+				mv.infoLabel.SetText("Генерация волнограммы...")
+			})
+
+			waveformPath, err := mv.ffmpeg.GenerateWaveform(mediaFile)
+			if err == nil {
+				mv.updateWaveform(waveformPath)
+			} else {
+				fmt.Printf("Warning: failed to generate waveform: %v\n", err)
+			}
+		}()
+	}
+
+	go func() {
+		wg.Wait()
 		fyne.Do(func() {
-			mv.loadingSpinner.SetValue(0.6)
-			mv.infoLabel.SetText("Генерация волнограммы...")
+			mv.loadingSpinner.SetValue(1.0)
+			mv.loadingSpinner.Hide()
 		})
+		mv.updateFinalInfo(mediaFile)
 
-		waveformPath, err := mv.ffmpeg.GenerateWaveform(mediaFile)
-		if err == nil {
-			mv.updateWaveform(waveformPath)
-		} else {
-			// Логируем ошибку, но продолжаем работу
-			fmt.Printf("Warning: failed to generate waveform: %v\n", err)
+		if mv.onMediaLoaded != nil {
+			mv.onMediaLoaded(mediaFile)
 		}
-	}
-
-	// Завершаем загрузку
-	fyne.Do(func() {
-		mv.loadingSpinner.SetValue(1.0)
-		mv.loadingSpinner.Hide()
-	})
-	mv.updateFinalInfo(mediaFile)
-
-	// Вызываем callback
-	if mv.onMediaLoaded != nil {
-		mv.onMediaLoaded(mediaFile)
-	}
+	}()
 }
 
 // updateBasicInfo обновляет базовую информацию о файле
