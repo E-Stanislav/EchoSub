@@ -46,12 +46,29 @@ FFmpegWrapper::FFmpegWrapper(QObject *parent)
 
 FFmpegWrapper::~FFmpegWrapper()
 {
+    qDebug() << "FFmpegWrapper::~FFmpegWrapper() called";
     close();
-    
-    if (m_videoFrame) av_frame_free(&m_videoFrame);
-    if (m_audioFrame) av_frame_free(&m_audioFrame);
-    if (m_packet) av_packet_free(&m_packet);
-    if (m_audioBuffer) av_freep(&m_audioBuffer);
+    if (m_videoFrame) {
+        qDebug() << "~FFmpegWrapper: av_frame_free videoFrame";
+        av_frame_free(&m_videoFrame);
+        qDebug() << "~FFmpegWrapper: videoFrame set to nullptr";
+    }
+    if (m_audioFrame) {
+        qDebug() << "~FFmpegWrapper: av_frame_free audioFrame";
+        av_frame_free(&m_audioFrame);
+        qDebug() << "~FFmpegWrapper: audioFrame set to nullptr";
+    }
+    if (m_packet) {
+        qDebug() << "~FFmpegWrapper: av_packet_free packet";
+        av_packet_free(&m_packet);
+        qDebug() << "~FFmpegWrapper: packet set to nullptr";
+    }
+    if (m_audioBuffer) {
+        qDebug() << "~FFmpegWrapper: av_freep audioBuffer";
+        av_freep(&m_audioBuffer);
+        m_audioBuffer = nullptr;
+        qDebug() << "~FFmpegWrapper: audioBuffer set to nullptr";
+    }
 }
 
 bool FFmpegWrapper::openFile(const QString &filePath)
@@ -184,20 +201,42 @@ QByteArray FFmpegWrapper::getNextAudioData(int maxSamples)
     }
     
     // Read packets until we get audio data
-    while (true) {
+    int attempts = 0;
+    const int maxAttempts = 8; // Уменьшаем количество попыток для более быстрого ответа
+    
+    while (attempts < maxAttempts) {
         if (!readNextPacket()) {
-            qDebug() << "getNextAudioData: no more packets";
+            qDebug() << "getNextAudioData: no more packets after" << attempts << "attempts";
             return QByteArray(); // End of stream
         }
         
         if (m_packet->stream_index == m_ctx->audioStream) {
             if (decodeAudioPacket(m_packet)) {
                 QByteArray result = convertAudioFrame(m_audioFrame);
-                qDebug() << "getNextAudioData: got" << result.size() << "bytes";
-                return result;
+                if (!result.isEmpty()) {
+                    // Обновляем текущее время на основе аудио PTS с минимальной задержкой
+                    if (m_audioFrame->pts != AV_NOPTS_VALUE) {
+                        AVStream *stream = m_ctx->formatCtx->streams[m_ctx->audioStream];
+                        qint64 audioTime = av_rescale_q(m_audioFrame->pts, stream->time_base, AVRational{1, 1000});
+                        // Уменьшаем задержку для лучшей синхронизации
+                        m_currentTime = audioTime - 20; // Задержка только 20ms
+                        if (m_currentTime < 0) m_currentTime = 0;
+                    }
+                    qDebug() << "getNextAudioData: got" << result.size() << "bytes after" << attempts << "attempts";
+                    return result;
+                } else {
+                    qDebug() << "getNextAudioData: audio frame conversion failed";
+                }
             }
         }
+        
+        attempts++;
     }
+    
+    // Если не удалось получить данные, возвращаем тишину для предотвращения прерываний
+    qDebug() << "getNextAudioData: failed to get audio data after" << maxAttempts << "attempts, returning silence";
+    int silenceBytes = maxSamples * m_outChannels * av_get_bytes_per_sample(m_outSampleFmt);
+    return QByteArray(silenceBytes, 0);
 }
 
 bool FFmpegWrapper::seekToTime(qint64 timestampMs)
@@ -416,27 +455,39 @@ qint64 FFmpegWrapper::getAudioDuration() const
 
 void FFmpegWrapper::cleanup()
 {
+    qDebug() << "FFmpegWrapper::cleanup() called";
     if (m_ctx->swsCtx) {
+        qDebug() << "cleanup: sws_freeContext";
         sws_freeContext(m_ctx->swsCtx);
         m_ctx->swsCtx = nullptr;
+        qDebug() << "cleanup: swsCtx set to nullptr";
     }
-    
     if (m_ctx->swrCtx) {
+        qDebug() << "cleanup: swr_free";
         swr_free(&m_ctx->swrCtx);
+        qDebug() << "cleanup: swrCtx set to nullptr";
     }
-    
     if (m_ctx->videoCodecCtx) {
+        qDebug() << "cleanup: avcodec_free_context (video)";
         avcodec_free_context(&m_ctx->videoCodecCtx);
+        qDebug() << "cleanup: videoCodecCtx set to nullptr";
     }
-    
     if (m_ctx->audioCodecCtx) {
+        qDebug() << "cleanup: avcodec_free_context (audio)";
         avcodec_free_context(&m_ctx->audioCodecCtx);
+        qDebug() << "cleanup: audioCodecCtx set to nullptr";
     }
-    
     if (m_ctx->formatCtx) {
+        qDebug() << "cleanup: avformat_close_input";
         avformat_close_input(&m_ctx->formatCtx);
+        qDebug() << "cleanup: formatCtx set to nullptr";
     }
-    
+    if (m_audioBuffer) {
+        qDebug() << "cleanup: av_freep audioBuffer";
+        av_freep(&m_audioBuffer);
+        m_audioBuffer = nullptr;
+        qDebug() << "cleanup: audioBuffer set to nullptr";
+    }
     m_ctx->videoStream = -1;
     m_ctx->audioStream = -1;
     m_ctx->initialized = false;
@@ -618,8 +669,27 @@ QByteArray FFmpegWrapper::convertAudioFrame(AVFrame *frame)
         return QByteArray();
     }
     
+    // Вычисляем максимальное количество выходных сэмплов
+    int maxOutSamples = av_rescale_rnd(frame->nb_samples, m_outSampleRate, 
+                                      m_ctx->audioCodecCtx->sample_rate, AV_ROUND_UP);
+    
+    // Убеждаемся, что буфер достаточно большой
+    int requiredBufferSize = av_samples_get_buffer_size(nullptr, m_outChannels, 
+                                                       maxOutSamples, m_outSampleFmt, 0);
+    if (requiredBufferSize > m_audioBufferSize) {
+        qDebug() << "convertAudioFrame: buffer too small, reallocating from" << m_audioBufferSize 
+                 << "to" << requiredBufferSize << "bytes";
+        av_freep(&m_audioBuffer);
+        m_audioBuffer = (uint8_t*)av_malloc(requiredBufferSize);
+        m_audioBufferSize = requiredBufferSize;
+        if (!m_audioBuffer) {
+            qDebug() << "convertAudioFrame: failed to allocate larger buffer";
+            return QByteArray();
+        }
+    }
+    
     // Convert audio frame to target format
-    int outSamples = swr_convert(m_ctx->swrCtx, &m_audioBuffer, 4096,
+    int outSamples = swr_convert(m_ctx->swrCtx, &m_audioBuffer, maxOutSamples,
                                 (const uint8_t**)frame->data, frame->nb_samples);
     
     if (outSamples < 0) {
@@ -630,6 +700,8 @@ QByteArray FFmpegWrapper::convertAudioFrame(AVFrame *frame)
     int outBytes = outSamples * m_outChannels * av_get_bytes_per_sample(m_outSampleFmt);
     qDebug() << "convertAudioFrame: converted" << frame->nb_samples << "samples to" << outSamples 
              << "samples," << outBytes << "bytes";
+    
+    // Создаем копию данных, чтобы избежать проблем с dangling pointer
     return QByteArray((const char*)m_audioBuffer, outBytes);
 }
 
@@ -648,11 +720,9 @@ void FFmpegWrapper::reinitializeAudioResampler() {
     if (m_ctx->swrCtx) {
         swr_free(&m_ctx->swrCtx);
     }
-    
     if (!m_ctx->audioCodecCtx) {
         return;
     }
-    
     int channels = getChannels();
 #if LIBAVCODEC_VERSION_MAJOR >= 60
     SwrContext *ctx = swr_alloc();
@@ -675,29 +745,24 @@ void FFmpegWrapper::reinitializeAudioResampler() {
         0, nullptr
     );
 #endif
-    
     if (!m_ctx->swrCtx) {
         qDebug() << "Failed to create SwrContext";
         return;
     }
-    
     if (swr_init(m_ctx->swrCtx) < 0) {
         qDebug() << "Failed to initialize SwrContext";
         return;
     }
-    
-    // Перераспределяем аудио буфер
     if (m_audioBuffer) {
         av_freep(&m_audioBuffer);
+        m_audioBuffer = nullptr;
     }
     m_audioBufferSize = av_samples_get_buffer_size(nullptr, m_outChannels, 4096, m_outSampleFmt, 0);
     m_audioBuffer = (uint8_t*)av_malloc(m_audioBufferSize);
-    
     if (!m_audioBuffer) {
         qDebug() << "Failed to allocate audio buffer";
         return;
     }
-    
     qDebug() << "Audio resampler reinitialized: sample rate" << m_outSampleRate 
              << "channels" << m_outChannels << "format" << m_outSampleFmt;
 }

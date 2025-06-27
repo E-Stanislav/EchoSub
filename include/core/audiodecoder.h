@@ -41,6 +41,7 @@ private slots:
 private:
     void setupAudioOutput();
     void startAudioThread();
+    void scheduleNextAudioChunk();
     void cleanup();
     void syncFFmpegAudioFormat(const QAudioFormat& format);
 
@@ -48,6 +49,7 @@ private:
     QAudioSink *m_audioSink;
     QIODevice *m_audioDevice;
     QTimer m_positionTimer;
+    QTimer* m_audioTimer = nullptr;
 
     QString m_filePath;
     qint64 m_duration;

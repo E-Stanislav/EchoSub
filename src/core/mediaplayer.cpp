@@ -5,6 +5,8 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QImage>
+#include <QDebug>
+#include <QTimer>
 
 MediaPlayer::MediaPlayer(QObject *parent)
     : QObject(parent)
@@ -22,6 +24,7 @@ MediaPlayer::MediaPlayer(QObject *parent)
 
 MediaPlayer::~MediaPlayer()
 {
+    qDebug() << "MediaPlayer::~MediaPlayer() called";
     close();
 }
 
@@ -119,32 +122,69 @@ void MediaPlayer::close()
 
 void MediaPlayer::play()
 {
+    qDebug() << "MediaPlayer::play: mediaType:" << (int)m_mediaType << "hasVideo:" << m_hasVideo << "hasAudio:" << m_hasAudio;
+    
     if (m_mediaType == MediaType::Audio && m_audioDecoder) {
+        qDebug() << "MediaPlayer::play: playing audio only";
         m_audioDecoder->play();
         setState(PlaybackState::Playing);
-    } else if (m_mediaType == MediaType::Video && m_videoDecoder) {
-        m_videoDecoder->play();
+    } else if (m_mediaType == MediaType::Video) {
+        qDebug() << "MediaPlayer::play: playing video";
+        if (m_videoDecoder) {
+            m_videoDecoder->play();
+        }
+        
+        // Для видео файлов с аудио также воспроизводим аудио с небольшой задержкой
+        if (m_hasAudio && m_audioDecoder) {
+            qDebug() << "MediaPlayer::play: also playing audio";
+            // Уменьшаем задержку для лучшей синхронизации
+            QTimer::singleShot(100, [this]() {
+                if (m_audioDecoder) {
+                    m_audioDecoder->play();
+                }
+            });
+        }
+        
         setState(PlaybackState::Playing);
     }
 }
 
 void MediaPlayer::pause()
 {
+    qDebug() << "MediaPlayer::pause: mediaType:" << (int)m_mediaType << "hasVideo:" << m_hasVideo << "hasAudio:" << m_hasAudio;
+    
     if (m_mediaType == MediaType::Audio && m_audioDecoder) {
         m_audioDecoder->pause();
         setState(PlaybackState::Paused);
-    } else if (m_mediaType == MediaType::Video && m_videoDecoder) {
-        m_videoDecoder->pause();
+    } else if (m_mediaType == MediaType::Video) {
+        if (m_videoDecoder) {
+            m_videoDecoder->pause();
+        }
+        
+        // Для видео файлов с аудио также останавливаем аудио
+        if (m_hasAudio && m_audioDecoder) {
+            m_audioDecoder->pause();
+        }
+        
         setState(PlaybackState::Paused);
     }
 }
 
 void MediaPlayer::stop()
 {
+    qDebug() << "MediaPlayer::stop: mediaType:" << (int)m_mediaType << "hasVideo:" << m_hasVideo << "hasAudio:" << m_hasAudio;
+    
     if (m_mediaType == MediaType::Audio && m_audioDecoder) {
         m_audioDecoder->stop();
-    } else if (m_mediaType == MediaType::Video && m_videoDecoder) {
-        m_videoDecoder->stop();
+    } else if (m_mediaType == MediaType::Video) {
+        if (m_videoDecoder) {
+            m_videoDecoder->stop();
+        }
+        
+        // Для видео файлов с аудио также останавливаем аудио
+        if (m_hasAudio && m_audioDecoder) {
+            m_audioDecoder->stop();
+        }
     }
     setState(PlaybackState::Stopped);
 }

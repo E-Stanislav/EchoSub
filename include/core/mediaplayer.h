@@ -49,6 +49,8 @@ public:
     bool hasVideo() const { return m_hasVideo; }
     bool hasAudio() const { return m_hasAudio; }
 
+    VideoDecoder* getVideoDecoder() const { return m_videoDecoder; }
+
 signals:
     void fileLoaded(const QString &filePath);
     void frameReady(const QImage &frame);
