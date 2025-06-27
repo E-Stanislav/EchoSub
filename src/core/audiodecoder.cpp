@@ -100,9 +100,33 @@ void AudioDecoder::play()
         return;
     }
     
+    // Получаем текущую позицию видео для синхронизации
+    qint64 videoPosition = 0;
+    MediaPlayer* player = qobject_cast<MediaPlayer*>(parent());
+    if (player && player->hasVideo()) {
+        VideoDecoder* vdec = player->getVideoDecoder();
+        if (vdec) {
+            videoPosition = vdec->getPosition();
+            qDebug() << "AudioDecoder::play: video position:" << videoPosition << "ms, audio position:" << m_position << "ms";
+        }
+    }
+    
+    // Синхронизируем аудио позицию с видео позицией
+    if (videoPosition > 0 && abs(videoPosition - m_position) > 100) {
+        qDebug() << "AudioDecoder::play: syncing audio position to video position:" << videoPosition << "ms";
+        m_position = videoPosition;
+    }
+    
     // Start playback from current position
     if (!m_ffmpeg->startPlayback(m_position)) {
         qDebug() << "Failed to start audio playback";
+        return;
+    }
+    
+    // Принудительно обновляем позицию в FFmpeg после паузы
+    qDebug() << "AudioDecoder::play: forcing FFmpeg to seek to position:" << m_position << "ms";
+    if (!m_ffmpeg->seekToTime(m_position)) {
+        qDebug() << "AudioDecoder::play: failed to seek FFmpeg to position";
         return;
     }
     
@@ -112,13 +136,21 @@ void AudioDecoder::play()
         setupAudioOutput();
     }
     
-    // Дополнительная проверка состояния QAudioSink
-    if (m_audioSink && m_audioSink->state() == QAudio::StoppedState) {
-        qDebug() << "AudioDecoder::play: QAudioSink is stopped, restarting...";
-        m_audioDevice = m_audioSink->start();
-        if (!m_audioDevice) {
-            qDebug() << "AudioDecoder::play: failed to restart QAudioSink";
-            return;
+    // Проверяем состояние QAudioSink и восстанавливаем его если нужно
+    if (m_audioSink) {
+        qDebug() << "AudioDecoder::play: QAudioSink state:" << m_audioSink->state();
+        if (m_audioSink->state() == QAudio::SuspendedState) {
+            qDebug() << "AudioDecoder::play: resuming from suspended state";
+            m_audioSink->resume();
+            // Даем время на восстановление
+            QThread::msleep(50);
+        } else if (m_audioSink->state() == QAudio::StoppedState) {
+            qDebug() << "AudioDecoder::play: QAudioSink is stopped, restarting...";
+            m_audioDevice = m_audioSink->start();
+            if (!m_audioDevice) {
+                qDebug() << "AudioDecoder::play: failed to restart QAudioSink";
+                return;
+            }
         }
     }
     
@@ -153,6 +185,11 @@ void AudioDecoder::pause()
 {
     if (!m_isPlaying) {
         return;
+    }
+    
+    // Останавливаем аудио таймер
+    if (m_audioTimer) {
+        m_audioTimer->stop();
     }
     
     if (m_audioSink) {
@@ -303,6 +340,7 @@ void AudioDecoder::startAudioThread()
 {
     qDebug() << "startAudioThread: starting audio timer with safety checks";
     if (m_audioTimer) {
+        qDebug() << "startAudioThread: stopping existing audio timer";
         m_audioTimer->stop();
         m_audioTimer->deleteLater();
         m_audioTimer = nullptr;
@@ -311,11 +349,17 @@ void AudioDecoder::startAudioThread()
     m_audioTimer = new QTimer(this);
     connect(m_audioTimer, &QTimer::timeout, this, &AudioDecoder::scheduleNextAudioChunk);
     m_audioTimer->start(20); // Возвращаем к 20ms для более частой подачи данных
-    qDebug() << "startAudioThread: audio timer started with 20ms interval";
+    qDebug() << "startAudioThread: audio timer started with 20ms interval, timer active:" << m_audioTimer->isActive();
 }
 
 void AudioDecoder::scheduleNextAudioChunk()
 {
+    static int callCount = 0;
+    callCount++;
+    if (callCount % 50 == 0) { // Логируем каждые 50 вызовов (примерно раз в секунду)
+        qDebug() << "scheduleNextAudioChunk: called, isPlaying:" << m_isPlaying << "callCount:" << callCount;
+    }
+    
     if (!m_isPlaying) {
         if (m_audioTimer) {
             m_audioTimer->stop();
@@ -331,8 +375,12 @@ void AudioDecoder::scheduleNextAudioChunk()
         return;
     }
     
-    // Проверяем состояние QAudioSink
-    if (m_audioSink->state() == QAudio::StoppedState) {
+    // Проверяем состояние QAudioSink и восстанавливаем его если нужно
+    if (m_audioSink->state() == QAudio::SuspendedState) {
+        qDebug() << "scheduleNextAudioChunk: resuming from suspended state";
+        m_audioSink->resume();
+        QThread::msleep(50);
+    } else if (m_audioSink->state() == QAudio::StoppedState) {
         m_audioDevice = m_audioSink->start();
         if (!m_audioDevice) {
             if (m_audioTimer) {
@@ -362,6 +410,16 @@ void AudioDecoder::scheduleNextAudioChunk()
     // Логируем только значительные расхождения
     if (abs(avDiff) > 50) {
         qDebug() << "A/V sync diff:" << avDiff << "ms (audioPos:" << audioPos << ", videoPos:" << videoPos << ")";
+    }
+
+    // Если расхождение слишком большое (>500ms), принудительно синхронизируем
+    if (abs(avDiff) > 500) {
+        qDebug() << "scheduleNextAudioChunk: large A/V sync diff detected, forcing sync to video position:" << videoPos << "ms";
+        if (m_ffmpeg->seekToTime(videoPos)) {
+            m_position = videoPos;
+            // Пропускаем несколько циклов для стабилизации
+            return;
+        }
     }
 
     // Если аудио сильно отстает от видео, ускоряем его
@@ -399,6 +457,7 @@ void AudioDecoder::scheduleNextAudioChunk()
         static int emptyDataCount = 0;
         emptyDataCount++;
         if (emptyDataCount > 20) {
+            qDebug() << "scheduleNextAudioChunk: too many empty data chunks, stopping audio";
             stop();
             emptyDataCount = 0;
         }
