@@ -30,21 +30,30 @@ MediaPlayer::~MediaPlayer()
 
 bool MediaPlayer::loadFile(const QString &filePath)
 {
+    qDebug() << "MediaPlayer::loadFile: loading file:" << filePath;
     close();
     if (!isValidMediaFile(filePath)) {
+        qDebug() << "MediaPlayer::loadFile: invalid media file";
         emit error("Unsupported file format");
         return false;
     }
     QFileInfo fileInfo(filePath);
     if (!fileInfo.exists()) {
+        qDebug() << "MediaPlayer::loadFile: file does not exist";
         emit error("File does not exist");
         return false;
     }
     
     m_currentFile = filePath;
     
+    // Check what streams are available
+    bool hasVideo = hasVideoStream(filePath);
+    bool hasAudio = hasAudioStream(filePath);
+    qDebug() << "MediaPlayer::loadFile: hasVideo:" << hasVideo << "hasAudio:" << hasAudio;
+    
     // Determine media type and initialize appropriate decoder
-    if (hasVideoStream(filePath)) {
+    if (hasVideo) {
+        qDebug() << "MediaPlayer::loadFile: initializing video decoder";
         m_mediaType = MediaType::Video;
         m_videoDecoder = new VideoDecoder(this);
         connect(m_videoDecoder, &VideoDecoder::frameReady, this, &MediaPlayer::frameReady);
@@ -54,6 +63,7 @@ bool MediaPlayer::loadFile(const QString &filePath)
         connect(m_videoDecoder, &VideoDecoder::error, this, &MediaPlayer::error);
         
         if (!m_videoDecoder->openFile(filePath)) {
+            qDebug() << "MediaPlayer::loadFile: failed to open video file";
             emit error("Failed to open video file");
             return false;
         }
@@ -62,7 +72,8 @@ bool MediaPlayer::loadFile(const QString &filePath)
         m_duration = m_videoDecoder->getDuration();
         
         // If video has audio, also initialize audio decoder
-        if (hasAudioStream(filePath)) {
+        if (hasAudio) {
+            qDebug() << "MediaPlayer::loadFile: video has audio, initializing audio decoder";
             m_audioDecoder = new AudioDecoder(this);
             connect(m_audioDecoder, &AudioDecoder::positionChanged, this, &MediaPlayer::audioPositionChanged);
             connect(m_audioDecoder, &AudioDecoder::playbackStateChanged, this, &MediaPlayer::audioPlaybackStateChanged);
@@ -70,10 +81,14 @@ bool MediaPlayer::loadFile(const QString &filePath)
             
             if (m_audioDecoder->openFile(filePath)) {
                 m_hasAudio = true;
+                qDebug() << "MediaPlayer::loadFile: audio decoder initialized successfully";
+            } else {
+                qDebug() << "MediaPlayer::loadFile: failed to initialize audio decoder";
             }
         }
         
-    } else if (hasAudioStream(filePath)) {
+    } else if (hasAudio) {
+        qDebug() << "MediaPlayer::loadFile: initializing audio-only decoder";
         m_mediaType = MediaType::Audio;
         m_audioDecoder = new AudioDecoder(this);
         connect(m_audioDecoder, &AudioDecoder::positionChanged, this, &MediaPlayer::positionChanged);
@@ -82,18 +97,22 @@ bool MediaPlayer::loadFile(const QString &filePath)
         connect(m_audioDecoder, &AudioDecoder::error, this, &MediaPlayer::error);
         
         if (!m_audioDecoder->openFile(filePath)) {
+            qDebug() << "MediaPlayer::loadFile: failed to open audio file";
             emit error("Failed to open audio file");
             return false;
         }
         
         m_hasAudio = true;
         m_duration = m_audioDecoder->getDuration();
+        qDebug() << "MediaPlayer::loadFile: audio file loaded successfully, duration:" << m_duration << "ms";
         
     } else {
+        qDebug() << "MediaPlayer::loadFile: file contains neither video nor audio";
         emit error("File contains neither video nor audio");
         return false;
     }
     
+    qDebug() << "MediaPlayer::loadFile: file loaded successfully, mediaType:" << (int)m_mediaType;
     emit fileLoaded(filePath);
     emit durationChanged(m_duration);
     return true;
@@ -146,6 +165,8 @@ void MediaPlayer::play()
         }
         
         setState(PlaybackState::Playing);
+    } else {
+        qDebug() << "MediaPlayer::play: no valid decoder available";
     }
 }
 

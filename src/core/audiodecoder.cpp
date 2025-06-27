@@ -397,45 +397,54 @@ void AudioDecoder::scheduleNextAudioChunk()
         }
     }
     
-    // Получаем позицию видео через MediaPlayer
+    // Получаем позицию видео через MediaPlayer только если есть видео
     qint64 videoPos = 0;
+    bool hasVideo = false;
     MediaPlayer* player = qobject_cast<MediaPlayer*>(parent());
     if (player && player->hasVideo()) {
         VideoDecoder* vdec = player->getVideoDecoder();
-        if (vdec) videoPos = vdec->getPosition();
+        if (vdec) {
+            videoPos = vdec->getPosition();
+            hasVideo = true;
+        }
     }
-    qint64 audioPos = m_ffmpeg->getCurrentTime();
-    qint64 avDiff = audioPos - videoPos;
     
-    // Логируем только значительные расхождения
-    if (abs(avDiff) > 50) {
-        qDebug() << "A/V sync diff:" << avDiff << "ms (audioPos:" << audioPos << ", videoPos:" << videoPos << ")";
-    }
+    qint64 audioPos = m_ffmpeg->getCurrentTime();
+    
+    // A/V синхронизация только для файлов с видео
+    if (hasVideo) {
+        qint64 avDiff = audioPos - videoPos;
+        
+        // Логируем только значительные расхождения
+        if (abs(avDiff) > 50) {
+            qDebug() << "A/V sync diff:" << avDiff << "ms (audioPos:" << audioPos << ", videoPos:" << videoPos << ")";
+        }
 
-    // Если расхождение слишком большое (>500ms), принудительно синхронизируем
-    if (abs(avDiff) > 500) {
-        qDebug() << "scheduleNextAudioChunk: large A/V sync diff detected, forcing sync to video position:" << videoPos << "ms";
-        if (m_ffmpeg->seekToTime(videoPos)) {
-            m_position = videoPos;
-            // Пропускаем несколько циклов для стабилизации
+        // Если расхождение слишком большое (>500ms), принудительно синхронизируем
+        if (abs(avDiff) > 500) {
+            qDebug() << "scheduleNextAudioChunk: large A/V sync diff detected, forcing sync to video position:" << videoPos << "ms";
+            if (m_ffmpeg->seekToTime(videoPos)) {
+                m_position = videoPos;
+                // Пропускаем несколько циклов для стабилизации
+                return;
+            }
+        }
+
+        // Если аудио сильно отстает от видео, ускоряем его
+        if (avDiff < -100) {
+            // Пропускаем несколько аудиофреймов для догона
+            for (int i = 0; i < 3; ++i) {
+                m_ffmpeg->getNextAudioData(1024);
+            }
             return;
         }
-    }
-
-    // Если аудио сильно отстает от видео, ускоряем его
-    if (avDiff < -100) {
-        // Пропускаем несколько аудиофреймов для догона
-        for (int i = 0; i < 3; ++i) {
-            m_ffmpeg->getNextAudioData(1024);
+        
+        // Если аудио опережает видео более чем на 80 мс, подаем тишину
+        if (avDiff > 80) {
+            QByteArray silence(1024 * 2 * 2, 0); // 1024 сэмпла * 2 канала * 2 байта
+            m_audioDevice->write(silence);
+            return;
         }
-        return;
-    }
-    
-    // Если аудио опережает видео более чем на 80 мс, подаем тишину
-    if (avDiff > 80) {
-        QByteArray silence(1024 * 2 * 2, 0); // 1024 сэмпла * 2 канала * 2 байта
-        m_audioDevice->write(silence);
-        return;
     }
     
     // Получаем аудиоданные с улучшенной буферизацией
