@@ -11,6 +11,8 @@
 #include <QMimeData>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QGraphicsRectItem>
+#include <QGraphicsDropShadowEffect>
 
 VideoWidget::VideoWidget(QWidget *parent)
     : QWidget(parent)
@@ -276,6 +278,41 @@ void VideoGraphicsView::updateSubtitlePosition(qint64 position) {
         else break;
     }
     m_subtitleItem->setPlainText(text);
+
+    // Определяем количество строк
+    int lineCount = text.count("\n") + 1;
+    int fontSize = 7;
+    if (lineCount > 2) fontSize = 16;
+
+    // Оформление субтитров
+    QFont font = m_subtitleItem->font();
+    font.setPointSize(fontSize);
+    font.setBold(true);
+    m_subtitleItem->setFont(font);
+    m_subtitleItem->setDefaultTextColor(Qt::white);
+    qreal maxWidth = scene() ? scene()->width() * 0.8 : 800;
+    m_subtitleItem->setTextWidth(maxWidth); // Ограничиваем ширину
+
+    // Центрирование и позиция внизу
+    QRectF videoRect = m_videoItem->boundingRect();
+    QRectF textRect = m_subtitleItem->boundingRect();
+    qreal x = videoRect.x() + (videoRect.width() - textRect.width()) / 2;
+    qreal y = videoRect.y() + videoRect.height() - textRect.height() - 40; // 40px отступ от низа
+    m_subtitleItem->setPos(x, y);
+
+    // Удаляем старый фон (если был)
+    QList<QGraphicsItem*> children = m_subtitleItem->childItems();
+    for (auto *item : children) {
+        if (auto *rect = dynamic_cast<QGraphicsRectItem*>(item)) rect->scene()->removeItem(rect);
+    }
+    // Добавляем полупрозрачный фон под текст
+    if (!text.isEmpty()) {
+        QRectF bgRect = m_subtitleItem->boundingRect().adjusted(-16, -8, 16, 8);
+        QGraphicsRectItem *bg = new QGraphicsRectItem(bgRect, m_subtitleItem);
+        bg->setBrush(QColor(0,0,0,180));
+        bg->setPen(Qt::NoPen);
+        bg->setZValue(-1);
+    }
 }
 
 QGraphicsVideoItem* VideoGraphicsView::videoItem() const {
