@@ -1,21 +1,16 @@
 #!/bin/bash
+set -e
 
-# Скрипт для запуска simple_player
-# Использование: ./run_simple_player.sh [путь_к_видео_файлу]
+# Перейти в корень проекта
+cd "$(dirname "$0")"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PLAYER_PATH="$SCRIPT_DIR/build_simple/bin/simple_player.app/Contents/MacOS/simple_player"
+# Создать build_simple, если не существует
+mkdir -p build_simple
+cd build_simple
 
-if [ ! -f "$PLAYER_PATH" ]; then
-    echo "Ошибка: simple_player не найден в $PLAYER_PATH"
-    echo "Убедитесь, что приложение собрано в build_simple/"
-    exit 1
-fi
+# Генерировать CMake и собрать
+cmake ..
+make -j$(nproc || sysctl -n hw.ncpu)
 
-if [ $# -eq 0 ]; then
-    # Запуск без аргументов
-    "$PLAYER_PATH"
-else
-    # Запуск с файлом
-    "$PLAYER_PATH" "$1"
-fi 
+# Запустить simple_player
+./bin/simple_player.app/Contents/MacOS/simple_player & 
