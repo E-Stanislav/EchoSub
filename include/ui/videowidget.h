@@ -6,13 +6,19 @@
 #include <QResizeEvent>
 #include <QMouseEvent>
 #include <QKeyEvent>
+#include <QMap>
+#include <QVideoWidget>
+#include <QPainter>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QMimeData>
 
 class VideoWidget : public QWidget {
     Q_OBJECT
 
 public:
     explicit VideoWidget(QWidget *parent = nullptr);
-    ~VideoWidget();
+    virtual ~VideoWidget();
 
     void setFrame(const QImage &frame);
     void clear();
@@ -39,4 +45,28 @@ private:
     QSize m_videoSize;
     bool m_hasFrame;
     bool m_keepAspectRatio;
+};
+
+class DraggableVideoWidget : public QVideoWidget {
+    Q_OBJECT
+public:
+    explicit DraggableVideoWidget(QWidget *parent = nullptr);
+    virtual ~DraggableVideoWidget();
+    void setSubtitleText(const QString &text);
+    void setSubtitles(const QMap<qint64, QString> &subtitles);
+    void clearSubtitles();
+    void updateSubtitlePosition(qint64 position);
+
+signals:
+    void fileDropped(const QString &filePath);
+
+protected:
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dragMoveEvent(QDragMoveEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
+    void paintEvent(QPaintEvent *event) override;
+
+private:
+    QString m_subtitleText;
+    QMap<qint64, QString> m_subtitles;
 }; 

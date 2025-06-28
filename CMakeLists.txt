@@ -9,7 +9,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 
 # Qt 6
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets Multimedia MultimediaWidgets)
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Multimedia MultimediaWidgets Concurrent)
 
 # FFmpeg
 find_package(PkgConfig REQUIRED)
@@ -59,6 +59,7 @@ target_link_libraries(echosub
     Qt6::Widgets 
     Qt6::Multimedia 
     Qt6::MultimediaWidgets
+    Qt6::Concurrent
     ${FFMPEG_LIBRARIES}
     ${FFMPEG_LDFLAGS}
 )
@@ -95,11 +96,13 @@ set(SIMPLE_PLAYER_SOURCES
     src/simple_player_test.cpp
     src/core/simplemediaplayer.cpp
     src/core/WhisperModelSettingsDialog.cpp
+    src/ui/videowidget.cpp
 )
 
 set(SIMPLE_PLAYER_HEADERS
     src/core/simplemediaplayer.h
     src/core/WhisperModelSettingsDialog.h
+    include/ui/videowidget.h
 )
 
 add_executable(simple_player ${SIMPLE_PLAYER_SOURCES} ${SIMPLE_PLAYER_HEADERS})
@@ -109,6 +112,7 @@ target_link_libraries(simple_player
     Qt6::Widgets 
     Qt6::Multimedia 
     Qt6::MultimediaWidgets
+    Qt6::Concurrent
 )
 
 set_target_properties(simple_player PROPERTIES

@@ -10,6 +10,16 @@
 #include <QProgressDialog>
 #include <QDir>
 #include <QSettings>
+#include <QPainter>
+#include <QTextDocument>
+#include <QRegularExpression>
+#include <QTimer>
+#include <QMutex>
+#include <QMutexLocker>
+#include <cmath>
+#include <QtConcurrent/QtConcurrent>
+#include <QFutureWatcher>
+#include <QLabel>
 
 SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
     : QWidget(parent)
@@ -27,6 +37,26 @@ SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
     // Создаем виджет для видео
     m_videoWidget = new DraggableVideoWidget(this);
     m_mediaPlayer->setVideoOutput(m_videoWidget);
+    
+    // Создаем overlay для субтитров как дочерний виджет SimpleMediaPlayer
+    m_subtitleOverlay = new QWidget(this);
+    m_subtitleOverlay->setStyleSheet("background: rgba(0,0,255,0.3); border: 2px solid red;");
+    m_subtitleOverlay->setAttribute(Qt::WA_TranslucentBackground);
+    m_subtitleOverlay->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_subtitleOverlay->setGeometry(50, 50, 600, 100); // фиксированная позиция и размер для отладки
+    m_subtitleOverlay->show();
+    m_subtitleOverlay->raise();
+    
+    // Добавляем QLabel для субтитров
+    m_subtitleLabel = new QLabel("ТЕСТ СУБТИТРОВ", m_subtitleOverlay);
+    m_subtitleLabel->setStyleSheet("color: yellow; font-size: 32px; font-weight: bold; background: rgba(0,0,0,0.7); border: 2px solid green;");
+    m_subtitleLabel->setAlignment(Qt::AlignCenter);
+    m_subtitleLabel->show();
+    QVBoxLayout *overlayLayout = new QVBoxLayout(m_subtitleOverlay);
+    overlayLayout->addWidget(m_subtitleLabel);
+    overlayLayout->setContentsMargins(10, 10, 10, 10);
+    
+    qDebug() << "SimpleMediaPlayer: SubtitleOverlay created as child of main window (DEBUG COLORS)";
     
     // Создаем UI элементы
     m_playButton = new QPushButton(this);
@@ -56,6 +86,10 @@ SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
     m_subtitlesButton = new QPushButton(this);
     m_subtitlesButton->setText("🎤");
     m_subtitlesButton->setToolTip("Создать субтитры (Whisper)");
+    
+    m_subtitlesOverlayButton = new QPushButton(this);
+    m_subtitlesOverlayButton->setText("📝");
+    m_subtitlesOverlayButton->setToolTip("Создать субтитры поверх видео (Whisper)");
     
     m_positionSlider = new QSlider(Qt::Horizontal, this);
     m_positionSlider->setMinimum(0);
@@ -89,6 +123,7 @@ SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
     controlsLayout->addWidget(m_fullscreenButton);
     controlsLayout->addWidget(m_settingsButton);
     controlsLayout->addWidget(m_subtitlesButton);
+    controlsLayout->addWidget(m_subtitlesOverlayButton);
     
     controlsLayout->addWidget(m_positionSlider, /*stretch=*/2); // Слайдер перемотки занимает больше места
     controlsLayout->addWidget(m_timeLabel);
@@ -158,6 +193,8 @@ SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
     
     connect(m_subtitlesButton, &QPushButton::clicked, this, &SimpleMediaPlayer::createSubtitles);
     
+    connect(m_subtitlesOverlayButton, &QPushButton::clicked, this, &SimpleMediaPlayer::createSubtitlesOverlay);
+    
     // Устанавливаем размер окна
     resize(800, 600);
     setWindowTitle("Simple Media Player");
@@ -180,6 +217,14 @@ bool SimpleMediaPlayer::openFile(const QString &filePath)
     // Скрываем информационную метку при загрузке файла
     m_infoLabel->hide();
     m_videoWidget->show(); // Показываем видео
+    
+    // Позиционируем overlay поверх видео
+    if (m_subtitleOverlay && m_videoWidget) {
+        QRect videoRect = m_videoWidget->geometry();
+        m_subtitleOverlay->setGeometry(videoRect);
+        m_subtitleOverlay->raise();
+        qDebug() << "SimpleMediaPlayer: openFile, overlay repositioned to" << videoRect;
+    }
     
     qDebug() << "SimpleMediaPlayer: opened file:" << filePath;
     emit fileLoaded(filePath);
@@ -237,17 +282,16 @@ void SimpleMediaPlayer::onPositionChanged(qint64 position)
     if (!m_sliderPressed) {
         m_positionSlider->setValue(position);
     }
-    
-    // Обновляем время
+    if (m_videoWidget) {
+        m_videoWidget->updateSubtitlePosition(position);
+    }
     qint64 duration = m_mediaPlayer->duration();
     QString timeText = QString("%1:%2 / %3:%4")
         .arg(position / 60000, 2, 10, QChar('0'))
         .arg((position % 60000) / 1000, 2, 10, QChar('0'))
         .arg(duration / 60000, 2, 10, QChar('0'))
         .arg((duration % 60000) / 1000, 2, 10, QChar('0'));
-    
     m_timeLabel->setText(timeText);
-    
     emit positionChanged(position);
 }
 
@@ -369,6 +413,17 @@ void SimpleMediaPlayer::keyPressEvent(QKeyEvent *event)
     QWidget::keyPressEvent(event);
 }
 
+void SimpleMediaPlayer::resizeEvent(QResizeEvent *event)
+{
+    QWidget::resizeEvent(event);
+    if (m_subtitleOverlay && m_videoWidget) {
+        QRect videoRect = m_videoWidget->geometry();
+        m_subtitleOverlay->setGeometry(videoRect);
+        m_subtitleOverlay->raise();
+        qDebug() << "SimpleMediaPlayer: window resized, overlay repositioned to" << videoRect;
+    }
+}
+
 void SimpleMediaPlayer::createSubtitles()
 {
     // Проверяем, есть ли открытый файл
@@ -485,14 +540,18 @@ void SimpleMediaPlayer::createSubtitles()
     // Создаем процесс для Whisper
     QProcess *whisperProcess = new QProcess(this);
     
+    // Переменная для хранения данных субтитров
+    QByteArray srtData;
+    
     // Подключаем сигналы для обновления прогресса
     connect(whisperProcess, &QProcess::started, [&progress]() {
-        progress.setValue(10);
+        progress.setValue(30);
     });
     
-    connect(whisperProcess, &QProcess::readyReadStandardOutput, [whisperProcess]() {
-        QString output = QString::fromUtf8(whisperProcess->readAllStandardOutput());
-        qDebug() << "Whisper stdout:" << output;
+    connect(whisperProcess, &QProcess::readyReadStandardOutput, [whisperProcess, &srtData]() {
+        QByteArray output = whisperProcess->readAllStandardOutput();
+        srtData.append(output);
+        qDebug() << "Whisper stdout:" << QString::fromUtf8(output);
     });
     
     connect(whisperProcess, &QProcess::readyReadStandardError, [whisperProcess]() {
@@ -501,10 +560,11 @@ void SimpleMediaPlayer::createSubtitles()
     });
     
     connect(whisperProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-        [this, &progress, whisperProcess, tempAudioPath, subtitlesSrtPath](int exitCode, QProcess::ExitStatus) {
+        [this, &progress, whisperProcess, tempAudioPath, &srtData](int exitCode, QProcess::ExitStatus) {
             progress.setValue(100);
             qDebug() << "Whisper process finished with exit code:" << exitCode;
             
+            // Удаляем временные файлы
             if (QFile::exists(tempAudioPath)) {
                 QFile::remove(tempAudioPath);
                 qDebug() << "Temporary audio file removed:" << tempAudioPath;
@@ -512,39 +572,24 @@ void SimpleMediaPlayer::createSubtitles()
             
             progress.close();
             
-            // Проверяем существование файла субтитров
-            if (QFile::exists(subtitlesSrtPath)) {
-                qDebug() << "Subtitles file created successfully:" << subtitlesSrtPath;
-                QFileInfo fileInfo(subtitlesSrtPath);
-                qDebug() << "File size:" << fileInfo.size() << "bytes";
-            } else {
-                qDebug() << "Subtitles file NOT found:" << subtitlesSrtPath;
-                // Проверяем, может быть файл создался без расширения
-                QString subtitlesPathWithoutExt = subtitlesSrtPath;
-                subtitlesPathWithoutExt.chop(4); // убираем .srt
-                if (QFile::exists(subtitlesPathWithoutExt)) {
-                    qDebug() << "Found subtitles file without extension:" << subtitlesPathWithoutExt;
-                    // Переименовываем файл
-                    QFile::rename(subtitlesPathWithoutExt, subtitlesSrtPath);
-                    qDebug() << "Renamed to:" << subtitlesSrtPath;
+            if (exitCode == 0 && !srtData.isEmpty()) {
+                // Парсим субтитры и отображаем их
+                QMap<qint64, QString> subtitles = parseSrtData(srtData);
+                if (!subtitles.isEmpty()) {
+                    displaySubtitles(subtitles);
+                    QMessageBox::information(this, "Успех", 
+                        QString("Субтитры созданы и отображаются поверх видео!\nСоздано %1 сегментов.").arg(subtitles.size()));
                 } else {
-                    qDebug() << "No subtitles file found with or without extension";
+                    QMessageBox::warning(this, "Предупреждение", "Субтитры созданы, но не удалось их распарсить.");
                 }
-            }
-            
-            if (exitCode != 0) {
+            } else {
                 QString errorOutput = QString::fromUtf8(whisperProcess->readAllStandardError());
                 QString stdOutput = QString::fromUtf8(whisperProcess->readAllStandardOutput());
                 QMessageBox::critical(this, "Ошибка Whisper", 
-                    QString("Файл субтитров не был создан.\n\nstderr:\n%1\n\nstdout:\n%2")
-                    .arg(errorOutput).arg(stdOutput));
-            } else if (!QFile::exists(subtitlesSrtPath)) {
-                QString errorOutput = QString::fromUtf8(whisperProcess->readAllStandardError());
-                QString stdOutput = QString::fromUtf8(whisperProcess->readAllStandardOutput());
-                QMessageBox::critical(this, "Ошибка", 
-                    QString("Файл субтитров не был создан.\n\nstderr:\n%1\n\nstdout:\n%2")
+                    QString("Не удалось создать субтитры.\n\nstderr:\n%1\n\nstdout:\n%2")
                     .arg(errorOutput).arg(stdOutput));
             }
+            
             whisperProcess->deleteLater();
         });
     
@@ -579,22 +624,22 @@ void SimpleMediaPlayer::createSubtitles()
     // Путь к локальному whisper
     QString whisperPath = QDir::currentPath() + "/../tools/whisper/whisper";
     
-    // Формируем команду для Whisper
+    // Формируем команду для Whisper с параметрами для субтитров поверх видео
     QStringList args;
     args << "-m" << modelPath;
     args << "-f" << tempAudioPath;
     args << "-osrt";
-    args << "-of" << subtitlesPath;  // Передаем путь БЕЗ расширения .srt
+    args << "-of" << subtitlesSrtPath;  // Передаем путь БЕЗ расширения .srt
     args << "-l" << "ru";  // Устанавливаем русский язык
-    args << "--max-len" << "300";  // Увеличиваем до 200 символов для интервалов ~10 секунд для субтитров
+    args << "--max-len" << "300";  // Длинные интервалы для субтитров поверх видео
     args << "--split-on-word";
     args << "--word-thold" << "0.01";
     
     // Запускаем Whisper
-    progress.setLabelText("Обработка аудио Whisper...");
+    progress.setLabelText("Обработка аудио Whisper для субтитров поверх видео...");
     progress.setValue(50);
     
-    qDebug() << "Starting Whisper with args:" << args;
+    qDebug() << "Starting Whisper for overlay subtitles with args:" << args;
     qDebug() << "Whisper path:" << whisperPath;
     qDebug() << "Model path:" << modelPath;
     qDebug() << "Audio path:" << tempAudioPath;
@@ -623,4 +668,168 @@ void SimpleMediaPlayer::createSubtitles()
     
     // Показываем диалог прогресса (НЕ exec, а show)
     progress.show();
+}
+
+void SimpleMediaPlayer::createSubtitlesOverlay()
+{
+    qDebug() << "createSubtitlesOverlay: starting...";
+    if (m_mediaPlayer->source().isEmpty()) {
+        QMessageBox::warning(this, "Ошибка", "Сначала откройте видео файл");
+        return;
+    }
+    QString videoPath = m_mediaPlayer->source().toLocalFile();
+    if (videoPath.isEmpty()) {
+        QMessageBox::warning(this, "Ошибка", "Не удалось получить путь к видео файлу");
+        return;
+    }
+    qDebug() << "createSubtitlesOverlay: video path:" << videoPath;
+    QSettings settings;
+    QString selectedModel = settings.value("whisper/selected_model", "base").toString();
+    QString projectDir = QDir::currentPath();
+    QString modelPath = projectDir + "/models/whisper/ggml-" + selectedModel + ".bin";
+    if (!QFile::exists(modelPath)) {
+        QMessageBox::warning(this, "Ошибка", QString("Модель '%1' не найдена по пути: %2\nСначала скачайте её в настройках Whisper.").arg(selectedModel).arg(modelPath));
+        return;
+    }
+    qDebug() << "createSubtitlesOverlay: model path:" << modelPath;
+    QString tempAudioPath = QDir::tempPath() + "/" + QFileInfo(videoPath).baseName() + "_temp.wav";
+    qDebug() << "createSubtitlesOverlay: extracting audio to:" << tempAudioPath;
+    // Извлекаем аудио
+    QProcess ffmpegProcess;
+    QStringList ffmpegArgs;
+    ffmpegArgs << "-i" << videoPath << "-vn" << "-acodec" << "pcm_s16le" << "-ar" << "16000" << "-ac" << "1" << tempAudioPath << "-y";
+    ffmpegProcess.start("ffmpeg", ffmpegArgs);
+    if (!ffmpegProcess.waitForStarted() || !ffmpegProcess.waitForFinished(30000) || ffmpegProcess.exitCode() != 0) {
+        QMessageBox::critical(this, "Ошибка", "Не удалось извлечь аудио");
+        return;
+    }
+    qDebug() << "createSubtitlesOverlay: audio extraction completed";
+    // Получаем длительность
+    QProcess durationProcess;
+    durationProcess.start("ffprobe", QStringList{"-i", tempAudioPath, "-show_entries", "format=duration", "-v", "quiet", "-of", "csv=p=0"});
+    durationProcess.waitForFinished(5000);
+    double totalDuration = durationProcess.readAllStandardOutput().trimmed().toDouble();
+    if (totalDuration <= 0) {
+        QMessageBox::critical(this, "Ошибка", "Не удалось получить длительность аудио");
+        return;
+    }
+    qDebug() << "createSubtitlesOverlay: total duration:" << totalDuration << "seconds";
+    // Чанки
+    const int chunkDuration = 15;
+    const int overlapDuration = 2;
+    const int totalChunks = static_cast<int>(std::ceil(totalDuration / (chunkDuration - overlapDuration)));
+    qDebug() << "createSubtitlesOverlay: will process" << totalChunks << "chunks";
+    if (m_videoWidget) m_videoWidget->clearSubtitles();
+    QMap<qint64, QString> *allSubtitles = new QMap<qint64, QString>();
+    QString whisperPath = QDir::currentPath() + "/../tools/whisper/whisper";
+    qDebug() << "createSubtitlesOverlay: whisper path:" << whisperPath;
+    // Последовательная обработка чанков
+    auto processNextChunk = [=](int chunkIndex, auto &&processNextChunkRef) mutable -> void {
+        qDebug() << "createSubtitlesOverlay: processing chunk" << chunkIndex << "of" << totalChunks;
+        if (chunkIndex >= totalChunks) {
+            // Всё готово
+            qDebug() << "createSubtitlesOverlay: all chunks processed, finalizing...";
+            if (QFile::exists(tempAudioPath)) QFile::remove(tempAudioPath);
+            if (!allSubtitles->isEmpty()) {
+                qDebug() << "createSubtitlesOverlay: setting final subtitles, count:" << allSubtitles->size();
+                m_videoWidget->setSubtitles(*allSubtitles);
+                QMessageBox::information(this, "Успех", QString("Субтитры созданы и отображаются поверх видео!\nОбработано %1 чанков, создано %2 сегментов.").arg(totalChunks).arg(allSubtitles->size()));
+            } else {
+                QMessageBox::warning(this, "Предупреждение", "Не удалось создать субтитры.");
+            }
+            delete allSubtitles;
+            return;
+        }
+        double startTime = chunkIndex * (chunkDuration - overlapDuration);
+        double endTime = std::min(startTime + chunkDuration, totalDuration);
+        QString chunkTempPath = QDir::tempPath() + "/" + QFileInfo(videoPath).baseName() + QString("_chunk_%1").arg(chunkIndex);
+        qDebug() << "createSubtitlesOverlay: chunk" << chunkIndex << "time range:" << startTime << "-" << endTime;
+        QProcess *chunkFfmpeg = new QProcess(this);
+        QStringList chunkArgs;
+        chunkArgs << "-i" << tempAudioPath << "-ss" << QString::number(startTime) << "-t" << QString::number(endTime - startTime)
+                  << "-acodec" << "pcm_s16le" << "-ar" << "16000" << "-ac" << "1" << chunkTempPath + ".wav" << "-y";
+        connect(chunkFfmpeg, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, [=](int, QProcess::ExitStatus) mutable {
+            chunkFfmpeg->deleteLater();
+            if (!QFile::exists(chunkTempPath + ".wav")) {
+                qDebug() << "createSubtitlesOverlay: chunk" << chunkIndex << "ffmpeg failed, skipping to next";
+                processNextChunkRef(chunkIndex + 1, processNextChunkRef);
+                return;
+            }
+            qDebug() << "createSubtitlesOverlay: chunk" << chunkIndex << "ffmpeg completed, starting whisper";
+            QProcess *chunkWhisper = new QProcess(this);
+            QStringList whisperArgs;
+            whisperArgs << "-m" << modelPath << "-f" << chunkTempPath + ".wav" << "-osrt" << "-of" << chunkTempPath << "-l" << "ru" << "--max-len" << "300" << "--split-on-word" << "--word-thold" << "0.01";
+            connect(chunkWhisper, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, [=](int, QProcess::ExitStatus) mutable {
+                QString srtFilePath = chunkTempPath + ".srt";
+                if (QFile::exists(srtFilePath)) {
+                    qDebug() << "createSubtitlesOverlay: chunk" << chunkIndex << "whisper completed, parsing SRT";
+                    QFile srtFile(srtFilePath);
+                    if (srtFile.open(QIODevice::ReadOnly)) {
+                        QByteArray srtData = srtFile.readAll();
+                        srtFile.close();
+                        QMap<qint64, QString> chunkSubtitles = parseSrtData(srtData);
+                        qint64 timeOffset = static_cast<qint64>(startTime * 1000);
+                        for (auto it = chunkSubtitles.begin(); it != chunkSubtitles.end(); ++it) {
+                            qint64 adjustedTime = it.key() + timeOffset;
+                            (*allSubtitles)[adjustedTime] = it.value();
+                        }
+                        qDebug() << "createSubtitlesOverlay: chunk" << chunkIndex << "added" << chunkSubtitles.size() << "subtitles, total now:" << allSubtitles->size();
+                        // Обновляем overlay после каждого чанка
+                        if (m_videoWidget) {
+                            m_videoWidget->setSubtitles(*allSubtitles);
+                            qDebug() << "createSubtitlesOverlay: chunk" << chunkIndex << "overlay updated";
+                        }
+                    }
+                } else {
+                    qDebug() << "createSubtitlesOverlay: chunk" << chunkIndex << "whisper failed, no SRT file created";
+                }
+                QFile::remove(chunkTempPath + ".wav");
+                QFile::remove(srtFilePath);
+                chunkWhisper->deleteLater();
+                // Следующий чанк
+                QTimer::singleShot(0, this, [=]() mutable { processNextChunkRef(chunkIndex + 1, processNextChunkRef); });
+            });
+            chunkWhisper->start(whisperPath, whisperArgs);
+        });
+        chunkFfmpeg->start("ffmpeg", chunkArgs);
+    };
+    // Запуск первого чанка
+    qDebug() << "createSubtitlesOverlay: starting first chunk";
+    processNextChunk(0, processNextChunk);
+}
+
+// Методы для работы с субтитрами
+QMap<qint64, QString> SimpleMediaPlayer::parseSrtData(const QByteArray &srtData)
+{
+    QMap<qint64, QString> subtitles;
+    QString srtText = QString::fromUtf8(srtData);
+    // Регулярное выражение для парсинга SRT
+    QRegularExpression regex(
+        "(\\d+)\\s+" // номер
+        "(\\d{2}):(\\d{2}):(\\d{2}),(\\d{3})\\s+-->\\s+" // время начала
+        "(\\d{2}):(\\d{2}):(\\d{2}),(\\d{3})\\s+" // время конца
+        "([\\s\\S]*?)(?=\\n\\d+\\n|$)" // текст (группа 10)
+    );
+    QRegularExpressionMatchIterator it = regex.globalMatch(srtText);
+    while (it.hasNext()) {
+        QRegularExpressionMatch match = it.next();
+        // Извлекаем время начала
+        int hours = match.captured(2).toInt();
+        int minutes = match.captured(3).toInt();
+        int seconds = match.captured(4).toInt();
+        int milliseconds = match.captured(5).toInt();
+        qint64 startTime = (hours * 3600 + minutes * 60 + seconds) * 1000 + milliseconds;
+        // Извлекаем текст
+        QString text = match.captured(10).trimmed();
+        text = text.replace(QRegularExpression("\\n"), " ");
+        subtitles[startTime] = text;
+    }
+    return subtitles;
+}
+
+void SimpleMediaPlayer::displaySubtitles(const QMap<qint64, QString> &subtitles)
+{
+    if (m_videoWidget) {
+        m_videoWidget->setSubtitles(subtitles);
+    }
 } 

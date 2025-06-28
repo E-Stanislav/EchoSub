@@ -15,50 +15,11 @@
 #include <QDragMoveEvent>
 #include <QMimeData>
 #include <QKeyEvent>
+#include <QTimer>
+#include <QMap>
+#include <ui/videowidget.h>
 
 class WhisperModelSettingsDialog;
-
-class DraggableVideoWidget : public QVideoWidget
-{
-    Q_OBJECT
-
-public:
-    explicit DraggableVideoWidget(QWidget *parent = nullptr) : QVideoWidget(parent) {
-        setAcceptDrops(true);
-    }
-
-signals:
-    void fileDropped(const QString &filePath);
-
-protected:
-    void dragEnterEvent(QDragEnterEvent *event) override {
-        if (event->mimeData()->hasUrls()) {
-            QList<QUrl> urls = event->mimeData()->urls();
-            if (!urls.isEmpty() && urls.first().isLocalFile()) {
-                event->acceptProposedAction();
-            }
-        }
-    }
-
-    void dragMoveEvent(QDragMoveEvent *event) override {
-        if (event->mimeData()->hasUrls()) {
-            QList<QUrl> urls = event->mimeData()->urls();
-            if (!urls.isEmpty() && urls.first().isLocalFile()) {
-                event->acceptProposedAction();
-            }
-        }
-    }
-
-    void dropEvent(QDropEvent *event) override {
-        if (event->mimeData()->hasUrls()) {
-            QList<QUrl> urls = event->mimeData()->urls();
-            if (!urls.isEmpty() && urls.first().isLocalFile()) {
-                QString filePath = urls.first().toLocalFile();
-                emit fileDropped(filePath);
-            }
-        }
-    }
-};
 
 class SimpleMediaPlayer : public QWidget
 {
@@ -78,6 +39,7 @@ public:
     qint64 duration() const;
     bool isPlaying() const;
     void createSubtitles();
+    void createSubtitlesOverlay();
 
 signals:
     void positionChanged(qint64 position);
@@ -98,10 +60,13 @@ protected:
     void dragMoveEvent(QDragMoveEvent *event) override;
     void dropEvent(QDropEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
 
 private:
     QMediaPlayer *m_mediaPlayer;
     DraggableVideoWidget *m_videoWidget;
+    QWidget *m_subtitleOverlay;
+    QLabel *m_subtitleLabel;
     QAudioOutput *m_audioOutput;
     
     // UI elements
@@ -112,6 +77,7 @@ private:
     QPushButton *m_fullscreenButton;
     QPushButton *m_settingsButton;
     QPushButton *m_subtitlesButton;
+    QPushButton *m_subtitlesOverlayButton;
     QSlider *m_positionSlider;
     QSlider *m_volumeSlider;
     QLabel *m_timeLabel;
@@ -119,6 +85,10 @@ private:
     
     bool m_sliderPressed;
     qint64 m_lastPosition;
+    
+    // Методы для работы с субтитрами
+    QMap<qint64, QString> parseSrtData(const QByteArray &srtData);
+    void displaySubtitles(const QMap<qint64, QString> &subtitles);
 };
 
 #endif // SIMPLEMEDIAPLAYER_H 

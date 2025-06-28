@@ -3,6 +3,7 @@
 #include <QPainter>
 #include <QMouseEvent>
 #include <QKeyEvent>
+#include <QDebug>
 
 VideoWidget::VideoWidget(QWidget *parent)
     : QWidget(parent)
@@ -128,4 +129,107 @@ qint64 VideoWidget::positionFromMouse(const QPoint &pos) const
     // This is a placeholder - in a real implementation, you would calculate
     // the position based on the video duration and mouse position
     return 0;
+}
+
+DraggableVideoWidget::DraggableVideoWidget(QWidget *parent)
+    : QVideoWidget(parent) {
+    setAcceptDrops(true);
+    qDebug() << "DraggableVideoWidget created, parent:" << parent;
+}
+
+DraggableVideoWidget::~DraggableVideoWidget() {
+    qDebug() << "DraggableVideoWidget destroyed";
+}
+
+void DraggableVideoWidget::setSubtitleText(const QString &text) {
+    qDebug() << "DraggableVideoWidget::setSubtitleText called with:" << text;
+    m_subtitleText = text;
+    update();
+}
+
+void DraggableVideoWidget::setSubtitles(const QMap<qint64, QString> &subtitles) {
+    qDebug() << "DraggableVideoWidget::setSubtitles called with" << subtitles.size() << "subtitles";
+    m_subtitles = subtitles;
+}
+
+void DraggableVideoWidget::clearSubtitles() {
+    qDebug() << "DraggableVideoWidget::clearSubtitles called";
+    m_subtitles.clear();
+    m_subtitleText.clear();
+    update();
+}
+
+void DraggableVideoWidget::updateSubtitlePosition(qint64 position) {
+    QString newText;
+    QList<qint64> keys = m_subtitles.keys();
+    std::sort(keys.begin(), keys.end());
+    for (auto it = m_subtitles.begin(); it != m_subtitles.end(); ++it) {
+        if (it.key() <= position && position < it.key() + 10000) {
+            newText = it.value();
+            break;
+        }
+    }
+    if (newText != m_subtitleText) {
+        qDebug() << "DraggableVideoWidget::updateSubtitlePosition new text:" << newText << "at position:" << position;
+        m_subtitleText = newText;
+        update();
+    }
+}
+
+void DraggableVideoWidget::dragEnterEvent(QDragEnterEvent *event) {
+    if (event->mimeData()->hasUrls()) {
+        QList<QUrl> urls = event->mimeData()->urls();
+        if (!urls.isEmpty() && urls.first().isLocalFile()) {
+            event->acceptProposedAction();
+        }
+    }
+}
+
+void DraggableVideoWidget::dragMoveEvent(QDragMoveEvent *event) {
+    if (event->mimeData()->hasUrls()) {
+        QList<QUrl> urls = event->mimeData()->urls();
+        if (!urls.isEmpty() && urls.first().isLocalFile()) {
+            event->acceptProposedAction();
+        }
+    }
+}
+
+void DraggableVideoWidget::dropEvent(QDropEvent *event) {
+    if (event->mimeData()->hasUrls()) {
+        QList<QUrl> urls = event->mimeData()->urls();
+        if (!urls.isEmpty() && urls.first().isLocalFile()) {
+            QString filePath = urls.first().toLocalFile();
+            emit fileDropped(filePath);
+        }
+    }
+}
+
+void DraggableVideoWidget::paintEvent(QPaintEvent *event) {
+    qDebug() << "DraggableVideoWidget::paintEvent called, rect:" << rect() << "visible:" << isVisible();
+    
+    QVideoWidget::paintEvent(event);
+    
+    // Если есть субтитры, рисуем их поверх видео
+    if (!m_subtitleText.isEmpty()) {
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        
+        QFont subtitleFont = painter.font();
+        subtitleFont.setPointSize(20);
+        subtitleFont.setBold(true);
+        painter.setFont(subtitleFont);
+        
+        QRect textRect = rect();
+        textRect.setTop(textRect.bottom() - 150);
+        
+        // Тень для субтитров
+        painter.setPen(Qt::black);
+        painter.drawText(textRect.translated(2,2), Qt::AlignCenter | Qt::TextWordWrap, m_subtitleText);
+        
+        // Основной текст субтитров
+        painter.setPen(Qt::white);
+        painter.drawText(textRect, Qt::AlignCenter | Qt::TextWordWrap, m_subtitleText);
+        
+        qDebug() << "DraggableVideoWidget::paintEvent drew subtitle:" << m_subtitleText;
+    }
 }
