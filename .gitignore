@@ -51,3 +51,6 @@ Makefile
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Models
+*.bin

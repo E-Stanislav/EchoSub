@@ -77,6 +77,7 @@ public:
     qint64 position() const;
     qint64 duration() const;
     bool isPlaying() const;
+    void createSubtitles();
 
 signals:
     void positionChanged(qint64 position);
@@ -110,6 +111,7 @@ private:
     QPushButton *m_resetButton;
     QPushButton *m_fullscreenButton;
     QPushButton *m_settingsButton;
+    QPushButton *m_subtitlesButton;
     QSlider *m_positionSlider;
     QSlider *m_volumeSlider;
     QLabel *m_timeLabel;

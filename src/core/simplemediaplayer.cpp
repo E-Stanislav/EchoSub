@@ -5,6 +5,11 @@
 #include <QApplication>
 #include <QDebug>
 #include <QMimeData>
+#include <QProcess>
+#include <QMessageBox>
+#include <QProgressDialog>
+#include <QDir>
+#include <QSettings>
 
 SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
     : QWidget(parent)
@@ -48,6 +53,10 @@ SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
     m_settingsButton->setIcon(style()->standardIcon(QStyle::SP_FileDialogDetailedView));
     m_settingsButton->setToolTip("Настройки");
     
+    m_subtitlesButton = new QPushButton(this);
+    m_subtitlesButton->setText("🎤");
+    m_subtitlesButton->setToolTip("Создать субтитры (Whisper)");
+    
     m_positionSlider = new QSlider(Qt::Horizontal, this);
     m_positionSlider->setMinimum(0);
     m_positionSlider->setMaximum(0);
@@ -79,6 +88,7 @@ SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
     controlsLayout->addWidget(m_resetButton);
     controlsLayout->addWidget(m_fullscreenButton);
     controlsLayout->addWidget(m_settingsButton);
+    controlsLayout->addWidget(m_subtitlesButton);
     
     controlsLayout->addWidget(m_positionSlider, /*stretch=*/2); // Слайдер перемотки занимает больше места
     controlsLayout->addWidget(m_timeLabel);
@@ -145,6 +155,8 @@ SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
         WhisperModelSettingsDialog dlg(this);
         dlg.exec();
     });
+    
+    connect(m_subtitlesButton, &QPushButton::clicked, this, &SimpleMediaPlayer::createSubtitles);
     
     // Устанавливаем размер окна
     resize(800, 600);
@@ -355,4 +367,260 @@ void SimpleMediaPlayer::keyPressEvent(QKeyEvent *event)
         return;
     }
     QWidget::keyPressEvent(event);
+}
+
+void SimpleMediaPlayer::createSubtitles()
+{
+    // Проверяем, есть ли открытый файл
+    if (m_mediaPlayer->source().isEmpty()) {
+        QMessageBox::warning(this, "Ошибка", "Сначала откройте видео файл");
+        return;
+    }
+    
+    QString videoPath = m_mediaPlayer->source().toLocalFile();
+    if (videoPath.isEmpty()) {
+        QMessageBox::warning(this, "Ошибка", "Не удалось получить путь к видео файлу");
+        return;
+    }
+    
+    // Получаем выбранную модель Whisper
+    QSettings settings;
+    QString selectedModel = settings.value("whisper/selected_model", "base").toString();
+    
+    // Проверяем, скачана ли модель
+    QString projectDir = QDir::currentPath();
+    QString modelPath = projectDir + "/models/whisper/ggml-" + selectedModel + ".bin";
+    if (!QFile::exists(modelPath)) {
+        QMessageBox::warning(this, "Ошибка", 
+            QString("Модель '%1' не найдена по пути: %2\nСначала скачайте её в настройках Whisper.").arg(selectedModel).arg(modelPath));
+        return;
+    }
+    
+    // Создаем имя файла для субтитров
+    QFileInfo videoFile(videoPath);
+    QString defaultSubtitlesPath = videoFile.absolutePath() + "/" + videoFile.baseName();
+    
+    // Показываем диалог для выбора имени файла (без расширения)
+    QString subtitlesPath = QFileDialog::getSaveFileName(
+        this,
+        "Сохранить субтитры как",
+        defaultSubtitlesPath,
+        "SRT файлы (*.srt);;Все файлы (*)"
+    );
+    
+    if (subtitlesPath.isEmpty()) {
+        // Пользователь отменил выбор
+        return;
+    }
+    
+    // Убираем расширение .srt если пользователь его добавил
+    if (subtitlesPath.endsWith(".srt", Qt::CaseInsensitive)) {
+        subtitlesPath = subtitlesPath.left(subtitlesPath.length() - 4);
+    }
+    
+    // Приводим к абсолютному пути
+    subtitlesPath = QFileInfo(subtitlesPath).absoluteFilePath();
+    
+    // Добавляем расширение .srt к выходному файлу
+    QString subtitlesSrtPath = subtitlesPath + ".srt";
+    
+    // Проверяем, существует ли уже файл субтитров
+    if (QFile::exists(subtitlesSrtPath)) {
+        QMessageBox::StandardButton reply = QMessageBox::question(
+            this, "Файл существует", 
+            QString("Файл субтитров '%1' уже существует. Перезаписать?").arg(QFileInfo(subtitlesSrtPath).fileName()),
+            QMessageBox::Yes | QMessageBox::No
+        );
+        
+        if (reply == QMessageBox::No) {
+            return;
+        }
+    }
+    
+    // Создаем диалог прогресса
+    QProgressDialog progress("Создание субтитров...", "Отмена", 0, 100, this);
+    progress.setWindowModality(Qt::WindowModal);
+    progress.setMinimumDuration(0);
+    progress.setValue(0);
+    
+    // Создаем временный аудио файл
+    QString tempAudioPath = QDir::tempPath() + "/" + QFileInfo(videoPath).baseName() + "_temp.wav";
+    
+    // Извлекаем аудио из видео
+    progress.setLabelText("Извлечение аудио из видео...");
+    progress.setValue(10);
+    
+    QProcess *ffmpegProcess = new QProcess(this);
+    QStringList ffmpegArgs;
+    ffmpegArgs << "-i" << videoPath << "-vn" << "-acodec" << "pcm_s16le" << "-ar" << "16000" << "-ac" << "1" << tempAudioPath << "-y";
+    
+    ffmpegProcess->start("ffmpeg", ffmpegArgs);
+    
+    if (!ffmpegProcess->waitForStarted()) {
+        QMessageBox::critical(this, "Ошибка", "Не удалось запустить ffmpeg для извлечения аудио.");
+        ffmpegProcess->deleteLater();
+        return;
+    }
+    
+    // Ждем завершения извлечения аудио
+    if (!ffmpegProcess->waitForFinished(30000)) { // 30 секунд таймаут
+        QMessageBox::critical(this, "Ошибка", "Таймаут при извлечении аудио.");
+        ffmpegProcess->deleteLater();
+        return;
+    }
+    
+    if (ffmpegProcess->exitCode() != 0) {
+        QString errorOutput = QString::fromUtf8(ffmpegProcess->readAllStandardError());
+        QMessageBox::critical(this, "Ошибка", 
+            QString("Ошибка при извлечении аудио:\n%1").arg(errorOutput));
+        ffmpegProcess->deleteLater();
+        return;
+    }
+    
+    ffmpegProcess->deleteLater();
+    
+    progress.setValue(20);
+    progress.setLabelText("Запуск Whisper для создания субтитров...");
+    
+    // Создаем процесс для Whisper
+    QProcess *whisperProcess = new QProcess(this);
+    
+    // Подключаем сигналы для обновления прогресса
+    connect(whisperProcess, &QProcess::started, [&progress]() {
+        progress.setValue(10);
+    });
+    
+    connect(whisperProcess, &QProcess::readyReadStandardOutput, [whisperProcess]() {
+        QString output = QString::fromUtf8(whisperProcess->readAllStandardOutput());
+        qDebug() << "Whisper stdout:" << output;
+    });
+    
+    connect(whisperProcess, &QProcess::readyReadStandardError, [whisperProcess]() {
+        QString error = QString::fromUtf8(whisperProcess->readAllStandardError());
+        qDebug() << "Whisper stderr:" << error;
+    });
+    
+    connect(whisperProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+        [this, &progress, whisperProcess, tempAudioPath, subtitlesSrtPath](int exitCode, QProcess::ExitStatus) {
+            progress.setValue(100);
+            qDebug() << "Whisper process finished with exit code:" << exitCode;
+            
+            if (QFile::exists(tempAudioPath)) {
+                QFile::remove(tempAudioPath);
+                qDebug() << "Temporary audio file removed:" << tempAudioPath;
+            }
+            
+            progress.close();
+            
+            // Проверяем существование файла субтитров
+            if (QFile::exists(subtitlesSrtPath)) {
+                qDebug() << "Subtitles file created successfully:" << subtitlesSrtPath;
+                QFileInfo fileInfo(subtitlesSrtPath);
+                qDebug() << "File size:" << fileInfo.size() << "bytes";
+            } else {
+                qDebug() << "Subtitles file NOT found:" << subtitlesSrtPath;
+                // Проверяем, может быть файл создался без расширения
+                QString subtitlesPathWithoutExt = subtitlesSrtPath;
+                subtitlesPathWithoutExt.chop(4); // убираем .srt
+                if (QFile::exists(subtitlesPathWithoutExt)) {
+                    qDebug() << "Found subtitles file without extension:" << subtitlesPathWithoutExt;
+                    // Переименовываем файл
+                    QFile::rename(subtitlesPathWithoutExt, subtitlesSrtPath);
+                    qDebug() << "Renamed to:" << subtitlesSrtPath;
+                } else {
+                    qDebug() << "No subtitles file found with or without extension";
+                }
+            }
+            
+            if (exitCode != 0) {
+                QString errorOutput = QString::fromUtf8(whisperProcess->readAllStandardError());
+                QString stdOutput = QString::fromUtf8(whisperProcess->readAllStandardOutput());
+                QMessageBox::critical(this, "Ошибка Whisper", 
+                    QString("Файл субтитров не был создан.\n\nstderr:\n%1\n\nstdout:\n%2")
+                    .arg(errorOutput).arg(stdOutput));
+            } else if (!QFile::exists(subtitlesSrtPath)) {
+                QString errorOutput = QString::fromUtf8(whisperProcess->readAllStandardError());
+                QString stdOutput = QString::fromUtf8(whisperProcess->readAllStandardOutput());
+                QMessageBox::critical(this, "Ошибка", 
+                    QString("Файл субтитров не был создан.\n\nstderr:\n%1\n\nstdout:\n%2")
+                    .arg(errorOutput).arg(stdOutput));
+            }
+            whisperProcess->deleteLater();
+        });
+    
+    connect(whisperProcess, &QProcess::errorOccurred, [&progress, whisperProcess, this](QProcess::ProcessError error) {
+        progress.setValue(100);
+        progress.close();
+        QMessageBox::critical(this, "Ошибка", 
+            QString("Ошибка запуска Whisper: %1").arg(error));
+        whisperProcess->deleteLater();
+    });
+    
+    // Подключаем отмену
+    connect(&progress, &QProgressDialog::canceled, [whisperProcess, ffmpegProcess, tempAudioPath, &progress]() {
+        if (whisperProcess && whisperProcess->state() == QProcess::Running) {
+            whisperProcess->terminate();
+            whisperProcess->waitForFinished(5000);
+            whisperProcess->kill();
+        }
+        if (ffmpegProcess && ffmpegProcess->state() == QProcess::Running) {
+            ffmpegProcess->terminate();
+            ffmpegProcess->waitForFinished(5000);
+            ffmpegProcess->kill();
+        }
+        
+        // Удаляем временный аудио файл при отмене
+        if (QFile::exists(tempAudioPath)) {
+            QFile::remove(tempAudioPath);
+        }
+        progress.close();
+    });
+    
+    // Путь к локальному whisper
+    QString whisperPath = QDir::currentPath() + "/../tools/whisper/whisper";
+    
+    // Формируем команду для Whisper
+    QStringList args;
+    args << "-m" << modelPath;
+    args << "-f" << tempAudioPath;
+    args << "-osrt";
+    args << "-of" << subtitlesPath;  // Передаем путь БЕЗ расширения .srt
+    args << "-l" << "ru";  // Устанавливаем русский язык
+    args << "--max-len" << "10";
+    args << "--split-on-word";
+    args << "--word-thold" << "0.01";
+    
+    // Запускаем Whisper
+    progress.setLabelText("Обработка аудио Whisper...");
+    progress.setValue(50);
+    
+    qDebug() << "Starting Whisper with args:" << args;
+    qDebug() << "Whisper path:" << whisperPath;
+    qDebug() << "Model path:" << modelPath;
+    qDebug() << "Audio path:" << tempAudioPath;
+    qDebug() << "Output path:" << subtitlesSrtPath;
+    
+    whisperProcess->start(whisperPath, args);
+    
+    if (!whisperProcess->waitForStarted()) {
+        progress.setValue(100);
+        progress.close();
+        QMessageBox::critical(this, "Ошибка", 
+            QString("Не удалось запустить Whisper по пути: %1\nУбедитесь, что файл существует и имеет права на выполнение.").arg(whisperPath));
+        return;
+    }
+    
+    // Ждем завершения с таймаутом
+    if (!whisperProcess->waitForFinished(300000)) { // 5 минут таймаут
+        progress.setValue(100);
+        progress.close();
+        whisperProcess->terminate();
+        whisperProcess->waitForFinished(10000);
+        whisperProcess->kill();
+        QMessageBox::critical(this, "Ошибка", "Whisper не завершился в течение 5 минут. Процесс прерван.");
+        return;
+    }
+    
+    // Показываем диалог прогресса (НЕ exec, а show)
+    progress.show();
 } 
