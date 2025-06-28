@@ -12,6 +12,10 @@
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QMimeData>
+#include <QGraphicsView>
+#include <QGraphicsVideoItem>
+#include <QGraphicsTextItem>
+#include <QString>
 
 class VideoWidget : public QWidget {
     Q_OBJECT
@@ -68,5 +72,20 @@ protected:
 
 private:
     QString m_subtitleText;
+    QMap<qint64, QString> m_subtitles;
+};
+
+class VideoGraphicsView : public QGraphicsView {
+public:
+    explicit VideoGraphicsView(QWidget *parent = nullptr);
+    void setSubtitles(const QMap<qint64, QString> &subtitles);
+    void updateSubtitlePosition(qint64 position);
+    void clearSubtitles();
+    QGraphicsVideoItem* videoItem() const;
+protected:
+    void resizeEvent(QResizeEvent *event) override;
+private:
+    QGraphicsVideoItem *m_videoItem;
+    QGraphicsTextItem *m_subtitleItem;
     QMap<qint64, QString> m_subtitles;
 }; 

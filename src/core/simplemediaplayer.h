@@ -17,7 +17,7 @@
 #include <QKeyEvent>
 #include <QTimer>
 #include <QMap>
-#include <ui/videowidget.h>
+#include "ui/videowidget.h"
 
 class WhisperModelSettingsDialog;
 
@@ -64,9 +64,7 @@ protected:
 
 private:
     QMediaPlayer *m_mediaPlayer;
-    DraggableVideoWidget *m_videoWidget;
-    QWidget *m_subtitleOverlay;
-    QLabel *m_subtitleLabel;
+    VideoGraphicsView *m_videoWidget;
     QAudioOutput *m_audioOutput;
     
     // UI elements

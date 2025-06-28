@@ -20,6 +20,8 @@
 #include <QtConcurrent/QtConcurrent>
 #include <QFutureWatcher>
 #include <QLabel>
+#include "ui/videowidget.h"
+#include <QGraphicsVideoItem>
 
 SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
     : QWidget(parent)
@@ -35,28 +37,9 @@ SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
     m_mediaPlayer->setAudioOutput(m_audioOutput);
     
     // Создаем виджет для видео
-    m_videoWidget = new DraggableVideoWidget(this);
-    m_mediaPlayer->setVideoOutput(m_videoWidget);
-    
-    // Создаем overlay для субтитров как дочерний виджет SimpleMediaPlayer
-    m_subtitleOverlay = new QWidget(this);
-    m_subtitleOverlay->setStyleSheet("background: rgba(0,0,255,0.3); border: 2px solid red;");
-    m_subtitleOverlay->setAttribute(Qt::WA_TranslucentBackground);
-    m_subtitleOverlay->setAttribute(Qt::WA_TransparentForMouseEvents);
-    m_subtitleOverlay->setGeometry(50, 50, 600, 100); // фиксированная позиция и размер для отладки
-    m_subtitleOverlay->show();
-    m_subtitleOverlay->raise();
-    
-    // Добавляем QLabel для субтитров
-    m_subtitleLabel = new QLabel("ТЕСТ СУБТИТРОВ", m_subtitleOverlay);
-    m_subtitleLabel->setStyleSheet("color: yellow; font-size: 32px; font-weight: bold; background: rgba(0,0,0,0.7); border: 2px solid green;");
-    m_subtitleLabel->setAlignment(Qt::AlignCenter);
-    m_subtitleLabel->show();
-    QVBoxLayout *overlayLayout = new QVBoxLayout(m_subtitleOverlay);
-    overlayLayout->addWidget(m_subtitleLabel);
-    overlayLayout->setContentsMargins(10, 10, 10, 10);
-    
-    qDebug() << "SimpleMediaPlayer: SubtitleOverlay created as child of main window (DEBUG COLORS)";
+    m_videoWidget = new VideoGraphicsView(this);
+    QGraphicsVideoItem *videoItem = static_cast<VideoGraphicsView*>(m_videoWidget)->videoItem();
+    m_mediaPlayer->setVideoOutput(videoItem);
     
     // Создаем UI элементы
     m_playButton = new QPushButton(this);
@@ -166,14 +149,6 @@ SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
     
     connect(m_volumeSlider, &QSlider::valueChanged, m_audioOutput, &QAudioOutput::setVolume);
     
-    // Подключаем сигнал drop файла от DraggableVideoWidget
-    connect(m_videoWidget, &DraggableVideoWidget::fileDropped, [this](const QString &filePath) {
-        qDebug() << "SimpleMediaPlayer: file dropped on video widget:" << filePath;
-        if (openFile(filePath)) {
-            play();
-        }
-    });
-    
     connect(m_fullscreenButton, &QPushButton::clicked, [this]() {
         if (isFullScreen()) {
             showNormal();
@@ -217,14 +192,6 @@ bool SimpleMediaPlayer::openFile(const QString &filePath)
     // Скрываем информационную метку при загрузке файла
     m_infoLabel->hide();
     m_videoWidget->show(); // Показываем видео
-    
-    // Позиционируем overlay поверх видео
-    if (m_subtitleOverlay && m_videoWidget) {
-        QRect videoRect = m_videoWidget->geometry();
-        m_subtitleOverlay->setGeometry(videoRect);
-        m_subtitleOverlay->raise();
-        qDebug() << "SimpleMediaPlayer: openFile, overlay repositioned to" << videoRect;
-    }
     
     qDebug() << "SimpleMediaPlayer: opened file:" << filePath;
     emit fileLoaded(filePath);
@@ -416,12 +383,6 @@ void SimpleMediaPlayer::keyPressEvent(QKeyEvent *event)
 void SimpleMediaPlayer::resizeEvent(QResizeEvent *event)
 {
     QWidget::resizeEvent(event);
-    if (m_subtitleOverlay && m_videoWidget) {
-        QRect videoRect = m_videoWidget->geometry();
-        m_subtitleOverlay->setGeometry(videoRect);
-        m_subtitleOverlay->raise();
-        qDebug() << "SimpleMediaPlayer: window resized, overlay repositioned to" << videoRect;
-    }
 }
 
 void SimpleMediaPlayer::createSubtitles()
@@ -577,8 +538,6 @@ void SimpleMediaPlayer::createSubtitles()
                 QMap<qint64, QString> subtitles = parseSrtData(srtData);
                 if (!subtitles.isEmpty()) {
                     displaySubtitles(subtitles);
-                    QMessageBox::information(this, "Успех", 
-                        QString("Субтитры созданы и отображаются поверх видео!\nСоздано %1 сегментов.").arg(subtitles.size()));
                 } else {
                     QMessageBox::warning(this, "Предупреждение", "Субтитры созданы, но не удалось их распарсить.");
                 }
@@ -733,7 +692,6 @@ void SimpleMediaPlayer::createSubtitlesOverlay()
             if (!allSubtitles->isEmpty()) {
                 qDebug() << "createSubtitlesOverlay: setting final subtitles, count:" << allSubtitles->size();
                 m_videoWidget->setSubtitles(*allSubtitles);
-                QMessageBox::information(this, "Успех", QString("Субтитры созданы и отображаются поверх видео!\nОбработано %1 чанков, создано %2 сегментов.").arg(totalChunks).arg(allSubtitles->size()));
             } else {
                 QMessageBox::warning(this, "Предупреждение", "Не удалось создать субтитры.");
             }

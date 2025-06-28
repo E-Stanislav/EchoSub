@@ -4,6 +4,13 @@
 #include <QMouseEvent>
 #include <QKeyEvent>
 #include <QDebug>
+#include <QGraphicsView>
+#include <QGraphicsScene>
+#include <QGraphicsVideoItem>
+#include <QGraphicsTextItem>
+#include <QMimeData>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 
 VideoWidget::VideoWidget(QWidget *parent)
     : QWidget(parent)
@@ -206,30 +213,78 @@ void DraggableVideoWidget::dropEvent(QDropEvent *event) {
 
 void DraggableVideoWidget::paintEvent(QPaintEvent *event) {
     qDebug() << "DraggableVideoWidget::paintEvent called, rect:" << rect() << "visible:" << isVisible();
-    
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing);
+    // Сначала рисуем видео с прозрачностью
+    painter.save();
+    painter.setOpacity(0.5); // 50% прозрачности для видео
     QVideoWidget::paintEvent(event);
-    
-    // Если есть субтитры, рисуем их поверх видео
+    painter.restore();
+    // Затем рисуем субтитры
     if (!m_subtitleText.isEmpty()) {
-        QPainter painter(this);
-        painter.setRenderHint(QPainter::Antialiasing);
-        
         QFont subtitleFont = painter.font();
         subtitleFont.setPointSize(20);
         subtitleFont.setBold(true);
         painter.setFont(subtitleFont);
-        
         QRect textRect = rect();
         textRect.setTop(textRect.bottom() - 150);
-        
-        // Тень для субтитров
         painter.setPen(Qt::black);
         painter.drawText(textRect.translated(2,2), Qt::AlignCenter | Qt::TextWordWrap, m_subtitleText);
-        
-        // Основной текст субтитров
         painter.setPen(Qt::white);
         painter.drawText(textRect, Qt::AlignCenter | Qt::TextWordWrap, m_subtitleText);
-        
         qDebug() << "DraggableVideoWidget::paintEvent drew subtitle:" << m_subtitleText;
     }
 }
+
+// Реализация методов VideoGraphicsView
+VideoGraphicsView::VideoGraphicsView(QWidget *parent)
+    : QGraphicsView(parent), m_videoItem(new QGraphicsVideoItem()), m_subtitleItem(new QGraphicsTextItem()) {
+    setAcceptDrops(true);
+    setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    auto *graphicsScene = new QGraphicsScene(this);
+    setScene(graphicsScene);
+    graphicsScene->addItem(m_videoItem);
+    graphicsScene->addItem(m_subtitleItem);
+    m_subtitleItem->setDefaultTextColor(Qt::yellow);
+    m_subtitleItem->setZValue(1);
+    m_videoItem->setZValue(0);
+    m_subtitleItem->setPos(50, 50); // Центрирование можно доработать
+    m_subtitleItem->setPlainText("");
+    setFrameStyle(QFrame::NoFrame);
+    fitInView(m_videoItem, Qt::KeepAspectRatio); // Инициализация
+    // Подписка на изменение размера видео
+    connect(m_videoItem, &QGraphicsVideoItem::nativeSizeChanged, this, [this]() {
+        if (scene()) scene()->setSceneRect(m_videoItem->boundingRect());
+        fitInView(m_videoItem, Qt::KeepAspectRatio);
+    });
+}
+
+void VideoGraphicsView::setSubtitles(const QMap<qint64, QString> &subtitles) {
+    m_subtitles = subtitles;
+}
+
+void VideoGraphicsView::clearSubtitles() {
+    m_subtitles.clear();
+    m_subtitleItem->setPlainText("");
+}
+
+void VideoGraphicsView::updateSubtitlePosition(qint64 position) {
+    QString text;
+    for (auto it = m_subtitles.constBegin(); it != m_subtitles.constEnd(); ++it) {
+        if (position >= it.key()) text = it.value();
+        else break;
+    }
+    m_subtitleItem->setPlainText(text);
+}
+
+QGraphicsVideoItem* VideoGraphicsView::videoItem() const {
+    return m_videoItem;
+}
+
+void VideoGraphicsView::resizeEvent(QResizeEvent *event) {
+    QGraphicsView::resizeEvent(event);
+    fitInView(m_videoItem, Qt::KeepAspectRatio); // Подгоняем видео при изменении размера окна
+}
+
+#include "videowidget.moc"
