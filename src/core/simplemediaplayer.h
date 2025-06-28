@@ -12,6 +12,51 @@
 #include <QHBoxLayout>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QDragMoveEvent>
+#include <QMimeData>
+#include <QKeyEvent>
+
+class VideoWidget : public QVideoWidget
+{
+    Q_OBJECT
+
+public:
+    explicit VideoWidget(QWidget *parent = nullptr) : QVideoWidget(parent) {
+        setAcceptDrops(true);
+    }
+
+signals:
+    void fileDropped(const QString &filePath);
+
+protected:
+    void dragEnterEvent(QDragEnterEvent *event) override {
+        if (event->mimeData()->hasUrls()) {
+            QList<QUrl> urls = event->mimeData()->urls();
+            if (!urls.isEmpty() && urls.first().isLocalFile()) {
+                event->acceptProposedAction();
+            }
+        }
+    }
+
+    void dragMoveEvent(QDragMoveEvent *event) override {
+        if (event->mimeData()->hasUrls()) {
+            QList<QUrl> urls = event->mimeData()->urls();
+            if (!urls.isEmpty() && urls.first().isLocalFile()) {
+                event->acceptProposedAction();
+            }
+        }
+    }
+
+    void dropEvent(QDropEvent *event) override {
+        if (event->mimeData()->hasUrls()) {
+            QList<QUrl> urls = event->mimeData()->urls();
+            if (!urls.isEmpty() && urls.first().isLocalFile()) {
+                QString filePath = urls.first().toLocalFile();
+                emit fileDropped(filePath);
+            }
+        }
+    }
+};
 
 class SimpleMediaPlayer : public QWidget
 {
@@ -47,11 +92,13 @@ private slots:
 
 protected:
     void dragEnterEvent(QDragEnterEvent *event) override;
+    void dragMoveEvent(QDragMoveEvent *event) override;
     void dropEvent(QDropEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
 
 private:
     QMediaPlayer *m_mediaPlayer;
-    QVideoWidget *m_videoWidget;
+    VideoWidget *m_videoWidget;
     QAudioOutput *m_audioOutput;
     
     // UI elements
@@ -59,6 +106,7 @@ private:
     QPushButton *m_stopButton;
     QPushButton *m_openButton;
     QPushButton *m_resetButton;
+    QPushButton *m_fullscreenButton;
     QSlider *m_positionSlider;
     QSlider *m_volumeSlider;
     QLabel *m_timeLabel;

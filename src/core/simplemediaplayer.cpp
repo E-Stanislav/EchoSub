@@ -19,7 +19,7 @@ SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
     m_mediaPlayer->setAudioOutput(m_audioOutput);
     
     // Создаем виджет для видео
-    m_videoWidget = new QVideoWidget(this);
+    m_videoWidget = new VideoWidget(this);
     m_mediaPlayer->setVideoOutput(m_videoWidget);
     
     // Создаем UI элементы
@@ -39,14 +39,22 @@ SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
     m_resetButton->setIcon(style()->standardIcon(QStyle::SP_DialogResetButton));
     m_resetButton->setToolTip("Reset");
     
+    m_fullscreenButton = new QPushButton(this);
+    m_fullscreenButton->setText("⛶");
+    m_fullscreenButton->setToolTip("Во весь экран");
+    
     m_positionSlider = new QSlider(Qt::Horizontal, this);
-    m_positionSlider->setRange(0, 0);
-    m_positionSlider->setToolTip("Position");
+    m_positionSlider->setMinimum(0);
+    m_positionSlider->setMaximum(0);
+    m_positionSlider->setSingleStep(1);
+    m_positionSlider->setPageStep(10);
+    m_positionSlider->setTracking(true);
+    m_positionSlider->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed); // Растягиваем по горизонтали
     
     m_volumeSlider = new QSlider(Qt::Horizontal, this);
     m_volumeSlider->setRange(0, 100);
-    m_volumeSlider->setValue(50);
-    m_volumeSlider->setToolTip("Volume");
+    m_volumeSlider->setValue(80);
+    m_volumeSlider->setFixedWidth(100); // Делаем слайдер громкости уже
     
     m_timeLabel = new QLabel("00:00 / 00:00", this);
     
@@ -64,10 +72,12 @@ SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
     controlsLayout->addWidget(m_stopButton);
     controlsLayout->addWidget(m_openButton);
     controlsLayout->addWidget(m_resetButton);
-    controlsLayout->addWidget(m_positionSlider);
+    controlsLayout->addWidget(m_fullscreenButton);
+    
+    controlsLayout->addWidget(m_positionSlider, /*stretch=*/2); // Слайдер перемотки занимает больше места
     controlsLayout->addWidget(m_timeLabel);
-    controlsLayout->addWidget(new QLabel("Vol:"));
-    controlsLayout->addWidget(m_volumeSlider);
+    controlsLayout->addWidget(new QLabel("Vol:", this));
+    controlsLayout->addWidget(m_volumeSlider, /*stretch=*/0); // Слайдер громкости не растягивается
     
     mainLayout->addLayout(controlsLayout);
     
@@ -105,9 +115,30 @@ SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
     
     connect(m_volumeSlider, &QSlider::valueChanged, m_audioOutput, &QAudioOutput::setVolume);
     
+    // Подключаем сигнал drop файла от VideoWidget
+    connect(m_videoWidget, &VideoWidget::fileDropped, [this](const QString &filePath) {
+        qDebug() << "SimpleMediaPlayer: file dropped on video widget:" << filePath;
+        if (openFile(filePath)) {
+            play();
+        }
+    });
+    
+    connect(m_fullscreenButton, &QPushButton::clicked, [this]() {
+        if (isFullScreen()) {
+            showNormal();
+            m_fullscreenButton->setText("⛶");
+            m_fullscreenButton->setToolTip("Во весь экран");
+        } else {
+            showFullScreen();
+            m_fullscreenButton->setText("❐");
+            m_fullscreenButton->setToolTip("Выйти из полноэкранного режима");
+        }
+    });
+    
     // Устанавливаем размер окна
     resize(800, 600);
     setWindowTitle("Simple Media Player");
+    m_videoWidget->hide(); // Скрываем видео по умолчанию
 }
 
 SimpleMediaPlayer::~SimpleMediaPlayer()
@@ -125,6 +156,7 @@ bool SimpleMediaPlayer::openFile(const QString &filePath)
     
     // Скрываем информационную метку при загрузке файла
     m_infoLabel->hide();
+    m_videoWidget->show(); // Показываем видео
     
     qDebug() << "SimpleMediaPlayer: opened file:" << filePath;
     emit fileLoaded(filePath);
@@ -154,6 +186,7 @@ void SimpleMediaPlayer::reset()
     m_infoLabel->show();  // Показываем информационную метку
     m_timeLabel->setText("00:00 / 00:00");
     m_positionSlider->setRange(0, 0);
+    m_videoWidget->hide(); // Скрываем видео
 }
 
 void SimpleMediaPlayer::seek(qint64 position)
@@ -243,6 +276,28 @@ void SimpleMediaPlayer::onSliderMoved(int value)
 
 void SimpleMediaPlayer::dragEnterEvent(QDragEnterEvent *event)
 {
+    qDebug() << "SimpleMediaPlayer::dragEnterEvent called";
+    
+    if (event->mimeData()->hasUrls()) {
+        QList<QUrl> urls = event->mimeData()->urls();
+        qDebug() << "SimpleMediaPlayer::dragEnterEvent - found" << urls.size() << "URLs";
+        
+        if (!urls.isEmpty() && urls.first().isLocalFile()) {
+            QString filePath = urls.first().toLocalFile();
+            qDebug() << "SimpleMediaPlayer::dragEnterEvent - accepting local file:" << filePath;
+            event->acceptProposedAction();
+        } else {
+            qDebug() << "SimpleMediaPlayer::dragEnterEvent - not a local file, ignoring";
+        }
+    } else {
+        qDebug() << "SimpleMediaPlayer::dragEnterEvent - no URLs found in mime data";
+    }
+}
+
+void SimpleMediaPlayer::dragMoveEvent(QDragMoveEvent *event)
+{
+    qDebug() << "SimpleMediaPlayer::dragMoveEvent called";
+    
     if (event->mimeData()->hasUrls()) {
         QList<QUrl> urls = event->mimeData()->urls();
         if (!urls.isEmpty() && urls.first().isLocalFile()) {
@@ -253,12 +308,40 @@ void SimpleMediaPlayer::dragEnterEvent(QDragEnterEvent *event)
 
 void SimpleMediaPlayer::dropEvent(QDropEvent *event)
 {
+    qDebug() << "SimpleMediaPlayer::dropEvent called";
+    
     if (event->mimeData()->hasUrls()) {
         QList<QUrl> urls = event->mimeData()->urls();
+        qDebug() << "SimpleMediaPlayer::dropEvent - found" << urls.size() << "URLs";
+        
         if (!urls.isEmpty() && urls.first().isLocalFile()) {
             QString filePath = urls.first().toLocalFile();
-            openFile(filePath);
-            play();
+            qDebug() << "SimpleMediaPlayer::dropEvent - opening file:" << filePath;
+            
+            if (openFile(filePath)) {
+                qDebug() << "SimpleMediaPlayer::dropEvent - file opened successfully, starting playback";
+                play();
+            } else {
+                qDebug() << "SimpleMediaPlayer::dropEvent - failed to open file";
+            }
+        } else {
+            qDebug() << "SimpleMediaPlayer::dropEvent - not a local file, ignoring";
         }
+    } else {
+        qDebug() << "SimpleMediaPlayer::dropEvent - no URLs found in mime data";
     }
+}
+
+void SimpleMediaPlayer::keyPressEvent(QKeyEvent *event)
+{
+    if (event->key() == Qt::Key_Escape && isFullScreen()) {
+        showNormal();
+        if (m_fullscreenButton) {
+            m_fullscreenButton->setText("⛶");
+            m_fullscreenButton->setToolTip("Во весь экран");
+        }
+        event->accept();
+        return;
+    }
+    QWidget::keyPressEvent(event);
 } 
