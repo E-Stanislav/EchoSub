@@ -586,7 +586,7 @@ void SimpleMediaPlayer::createSubtitles()
     args << "-osrt";
     args << "-of" << subtitlesPath;  // Передаем путь БЕЗ расширения .srt
     args << "-l" << "ru";  // Устанавливаем русский язык
-    args << "--max-len" << "10";
+    args << "--max-len" << "300";  // Увеличиваем до 200 символов для интервалов ~10 секунд для субтитров
     args << "--split-on-word";
     args << "--word-thold" << "0.01";
     
