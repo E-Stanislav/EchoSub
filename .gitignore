@@ -1,6 +1,7 @@
 # Build directories
 build/
 cmake-build-*/
+build_simple/
 
 # Compiled Object files
 *.slo

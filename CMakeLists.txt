@@ -31,6 +31,7 @@ set(SOURCES
     src/core/mediaplayer.cpp
     src/core/audiodecoder.cpp
     src/core/videodecoder.cpp
+    src/core/simplemediaplayer.cpp
     src/ui/mainwindow.cpp
     src/ui/videowidget.cpp
     src/ui/controlspanel.cpp
@@ -41,6 +42,7 @@ set(HEADERS
     include/core/mediaplayer.h
     include/core/audiodecoder.h
     include/core/videodecoder.h
+    include/core/simplemediaplayer.h
     include/ui/mainwindow.h
     include/ui/videowidget.h
     include/ui/controlspanel.h
