@@ -400,19 +400,31 @@ void AudioDecoder::scheduleNextAudioChunk()
     // Получаем позицию видео через MediaPlayer только если есть видео
     qint64 videoPos = 0;
     bool hasVideo = false;
+    bool videoEnded = false;
     MediaPlayer* player = qobject_cast<MediaPlayer*>(parent());
     if (player && player->hasVideo()) {
         VideoDecoder* vdec = player->getVideoDecoder();
         if (vdec) {
             videoPos = vdec->getPosition();
             hasVideo = true;
+            // Проверяем, не закончилось ли видео
+            if (videoPos == 0 && m_position > 1000) {
+                videoEnded = true;
+            }
         }
     }
     
     qint64 audioPos = m_ffmpeg->getCurrentTime();
     
-    // A/V синхронизация только для файлов с видео
-    if (hasVideo) {
+    // Если видео закончилось, останавливаем аудио
+    if (videoEnded) {
+        qDebug() << "scheduleNextAudioChunk: video ended, stopping audio";
+        stop();
+        return;
+    }
+    
+    // A/V синхронизация только для файлов с видео И только если видео активно воспроизводится
+    if (hasVideo && videoPos > 0) {
         qint64 avDiff = audioPos - videoPos;
         
         // Логируем только значительные расхождения (увеличиваем порог)
