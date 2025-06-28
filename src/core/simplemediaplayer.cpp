@@ -421,6 +421,27 @@ void SimpleMediaPlayer::keyPressEvent(QKeyEvent *event)
         }
         event->accept();
         break;
+    case Qt::Key_F:
+        // Command + F for fullscreen toggle
+        if (event->modifiers() & Qt::ControlModifier) {
+            if (isFullScreen()) {
+                showNormal();
+                if (m_fullscreenButton) {
+                    m_fullscreenButton->setText("⛶");
+                    m_fullscreenButton->setToolTip("Во весь экран");
+                }
+            } else {
+                showFullScreen();
+                if (m_fullscreenButton) {
+                    m_fullscreenButton->setText("❐");
+                    m_fullscreenButton->setToolTip("Выйти из полноэкранного режима");
+                }
+            }
+            event->accept();
+        } else {
+            QWidget::keyPressEvent(event);
+        }
+        break;
     case Qt::Key_Escape:
         if (isFullScreen()) {
             showNormal();

@@ -302,6 +302,19 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
         }
         event->accept();
         break;
+    case Qt::Key_F:
+        // Command + F for fullscreen toggle
+        if (event->modifiers() & Qt::ControlModifier) {
+            if (isFullScreen()) {
+                showNormal();
+            } else {
+                showFullScreen();
+            }
+            event->accept();
+        } else {
+            QMainWindow::keyPressEvent(event);
+        }
+        break;
     case Qt::Key_Up:
         // Increase volume (if controls panel supports it)
         if (m_controlsPanel) {
