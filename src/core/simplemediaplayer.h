@@ -16,12 +16,14 @@
 #include <QMimeData>
 #include <QKeyEvent>
 
-class VideoWidget : public QVideoWidget
+class WhisperModelSettingsDialog;
+
+class DraggableVideoWidget : public QVideoWidget
 {
     Q_OBJECT
 
 public:
-    explicit VideoWidget(QWidget *parent = nullptr) : QVideoWidget(parent) {
+    explicit DraggableVideoWidget(QWidget *parent = nullptr) : QVideoWidget(parent) {
         setAcceptDrops(true);
     }
 
@@ -98,7 +100,7 @@ protected:
 
 private:
     QMediaPlayer *m_mediaPlayer;
-    VideoWidget *m_videoWidget;
+    DraggableVideoWidget *m_videoWidget;
     QAudioOutput *m_audioOutput;
     
     // UI elements
@@ -107,6 +109,7 @@ private:
     QPushButton *m_openButton;
     QPushButton *m_resetButton;
     QPushButton *m_fullscreenButton;
+    QPushButton *m_settingsButton;
     QSlider *m_positionSlider;
     QSlider *m_volumeSlider;
     QLabel *m_timeLabel;

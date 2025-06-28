@@ -32,6 +32,7 @@ set(SOURCES
     src/core/audiodecoder.cpp
     src/core/videodecoder.cpp
     src/core/simplemediaplayer.cpp
+    src/core/WhisperModelSettingsDialog.cpp
     src/ui/mainwindow.cpp
     src/ui/videowidget.cpp
     src/ui/controlspanel.cpp
@@ -42,7 +43,7 @@ set(HEADERS
     include/core/mediaplayer.h
     include/core/audiodecoder.h
     include/core/videodecoder.h
-    include/core/simplemediaplayer.h
+    src/core/simplemediaplayer.h
     include/ui/mainwindow.h
     include/ui/videowidget.h
     include/ui/controlspanel.h
@@ -85,4 +86,44 @@ endif()
 message(STATUS "EchoSub Configuration:")
 message(STATUS "  Qt6 version: ${Qt6_VERSION}")
 message(STATUS "  FFmpeg libraries: ${FFMPEG_LIBRARIES}")
-message(STATUS "  FFmpeg include dirs: ${FFMPEG_INCLUDE_DIRS}") 
+message(STATUS "  FFmpeg include dirs: ${FFMPEG_INCLUDE_DIRS}")
+
+# =====================
+# Simple Player (Qt-only)
+# =====================
+set(SIMPLE_PLAYER_SOURCES
+    src/simple_player_test.cpp
+    src/core/simplemediaplayer.cpp
+    src/core/WhisperModelSettingsDialog.cpp
+)
+
+set(SIMPLE_PLAYER_HEADERS
+    src/core/simplemediaplayer.h
+    src/core/WhisperModelSettingsDialog.h
+)
+
+add_executable(simple_player ${SIMPLE_PLAYER_SOURCES} ${SIMPLE_PLAYER_HEADERS})
+
+target_link_libraries(simple_player 
+    Qt6::Core 
+    Qt6::Widgets 
+    Qt6::Multimedia 
+    Qt6::MultimediaWidgets
+)
+
+set_target_properties(simple_player PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+
+install(TARGETS simple_player DESTINATION bin)
+
+if(APPLE)
+    set_target_properties(simple_player PROPERTIES
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_INFO_PLIST ${CMAKE_SOURCE_DIR}/Info.plist
+    )
+endif()
+
+message(STATUS "Simple Media Player Configuration:")
+message(STATUS "  Qt6 version: ${Qt6_VERSION}")
+message(STATUS "  Using built-in Qt multimedia components") 

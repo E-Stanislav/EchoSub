@@ -1,4 +1,5 @@
 #include "simplemediaplayer.h"
+#include "WhisperModelSettingsDialog.h"
 #include <QFileDialog>
 #include <QStyle>
 #include <QApplication>
@@ -19,7 +20,7 @@ SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
     m_mediaPlayer->setAudioOutput(m_audioOutput);
     
     // Создаем виджет для видео
-    m_videoWidget = new VideoWidget(this);
+    m_videoWidget = new DraggableVideoWidget(this);
     m_mediaPlayer->setVideoOutput(m_videoWidget);
     
     // Создаем UI элементы
@@ -42,6 +43,10 @@ SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
     m_fullscreenButton = new QPushButton(this);
     m_fullscreenButton->setText("⛶");
     m_fullscreenButton->setToolTip("Во весь экран");
+    
+    m_settingsButton = new QPushButton(this);
+    m_settingsButton->setIcon(style()->standardIcon(QStyle::SP_FileDialogDetailedView));
+    m_settingsButton->setToolTip("Настройки");
     
     m_positionSlider = new QSlider(Qt::Horizontal, this);
     m_positionSlider->setMinimum(0);
@@ -73,6 +78,7 @@ SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
     controlsLayout->addWidget(m_openButton);
     controlsLayout->addWidget(m_resetButton);
     controlsLayout->addWidget(m_fullscreenButton);
+    controlsLayout->addWidget(m_settingsButton);
     
     controlsLayout->addWidget(m_positionSlider, /*stretch=*/2); // Слайдер перемотки занимает больше места
     controlsLayout->addWidget(m_timeLabel);
@@ -115,8 +121,8 @@ SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
     
     connect(m_volumeSlider, &QSlider::valueChanged, m_audioOutput, &QAudioOutput::setVolume);
     
-    // Подключаем сигнал drop файла от VideoWidget
-    connect(m_videoWidget, &VideoWidget::fileDropped, [this](const QString &filePath) {
+    // Подключаем сигнал drop файла от DraggableVideoWidget
+    connect(m_videoWidget, &DraggableVideoWidget::fileDropped, [this](const QString &filePath) {
         qDebug() << "SimpleMediaPlayer: file dropped on video widget:" << filePath;
         if (openFile(filePath)) {
             play();
@@ -133,6 +139,11 @@ SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
             m_fullscreenButton->setText("❐");
             m_fullscreenButton->setToolTip("Выйти из полноэкранного режима");
         }
+    });
+    
+    connect(m_settingsButton, &QPushButton::clicked, this, [this]() {
+        WhisperModelSettingsDialog dlg(this);
+        dlg.exec();
     });
     
     // Устанавливаем размер окна
