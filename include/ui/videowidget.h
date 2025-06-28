@@ -15,6 +15,7 @@
 #include <QGraphicsView>
 #include <QGraphicsVideoItem>
 #include <QGraphicsTextItem>
+#include <QGraphicsRectItem>
 #include <QString>
 
 class VideoWidget : public QWidget {
@@ -87,5 +88,6 @@ protected:
 private:
     QGraphicsVideoItem *m_videoItem;
     QGraphicsTextItem *m_subtitleItem;
+    QGraphicsRectItem *m_subtitleBg;
     QMap<qint64, QString> m_subtitles;
 }; 
