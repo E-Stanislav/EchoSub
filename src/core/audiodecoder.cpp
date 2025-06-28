@@ -356,11 +356,11 @@ void AudioDecoder::scheduleNextAudioChunk()
 {
     static int callCount = 0;
     callCount++;
-    if (callCount % 50 == 0) { // Логируем каждые 50 вызовов (примерно раз в секунду)
+    if (callCount % 100 == 0) { // Логируем каждые 100 вызовов (примерно раз в 2 секунды)
         qDebug() << "scheduleNextAudioChunk: called, isPlaying:" << m_isPlaying << "callCount:" << callCount;
     }
     
-    if (!m_isPlaying) {
+    if (!m_isPlaying || !m_audioTimer || !m_audioTimer->isActive()) {
         if (m_audioTimer) {
             m_audioTimer->stop();
         }
@@ -415,13 +415,13 @@ void AudioDecoder::scheduleNextAudioChunk()
     if (hasVideo) {
         qint64 avDiff = audioPos - videoPos;
         
-        // Логируем только значительные расхождения
-        if (abs(avDiff) > 50) {
+        // Логируем только значительные расхождения (увеличиваем порог)
+        if (abs(avDiff) > 100) {
             qDebug() << "A/V sync diff:" << avDiff << "ms (audioPos:" << audioPos << ", videoPos:" << videoPos << ")";
         }
 
-        // Если расхождение слишком большое (>500ms), принудительно синхронизируем
-        if (abs(avDiff) > 500) {
+        // Если расхождение слишком большое (>200ms), принудительно синхронизируем
+        if (abs(avDiff) > 200) {
             qDebug() << "scheduleNextAudioChunk: large A/V sync diff detected, forcing sync to video position:" << videoPos << "ms";
             if (m_ffmpeg->seekToTime(videoPos)) {
                 m_position = videoPos;
@@ -431,16 +431,16 @@ void AudioDecoder::scheduleNextAudioChunk()
         }
 
         // Если аудио сильно отстает от видео, ускоряем его
-        if (avDiff < -100) {
+        if (avDiff < -150) {
             // Пропускаем несколько аудиофреймов для догона
-            for (int i = 0; i < 3; ++i) {
+            for (int i = 0; i < 2; ++i) {
                 m_ffmpeg->getNextAudioData(1024);
             }
             return;
         }
         
-        // Если аудио опережает видео более чем на 80 мс, подаем тишину
-        if (avDiff > 80) {
+        // Если аудио опережает видео более чем на 100 мс, подаем тишину
+        if (avDiff > 100) {
             QByteArray silence(1024 * 2 * 2, 0); // 1024 сэмпла * 2 канала * 2 байта
             m_audioDevice->write(silence);
             return;

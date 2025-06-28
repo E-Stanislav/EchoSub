@@ -71,6 +71,17 @@ void VideoDecoder::play()
         return;
     }
     
+    // Принудительно читаем первый кадр для обновления позиции
+    QImage firstFrame = m_ffmpeg->getNextFrame();
+    if (!firstFrame.isNull()) {
+        m_position = m_ffmpeg->getCurrentTime();
+        emit frameReady(firstFrame);
+        emit positionChanged(m_position);
+        qDebug() << "VideoDecoder::play: read first frame, position:" << m_position << "ms";
+    } else {
+        qDebug() << "VideoDecoder::play: failed to read first frame, FFmpeg state:" << m_ffmpeg->isOpen();
+    }
+    
     m_isPlaying = true;
     m_timer.start();
     

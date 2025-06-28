@@ -216,9 +216,11 @@ QByteArray FFmpegWrapper::getNextAudioData(int maxSamples)
                     if (m_audioFrame->pts != AV_NOPTS_VALUE) {
                         AVStream *stream = m_ctx->formatCtx->streams[m_ctx->audioStream];
                         qint64 audioTime = av_rescale_q(m_audioFrame->pts, stream->time_base, AVRational{1, 1000});
-                        // Уменьшаем задержку для лучшей синхронизации
-                        m_currentTime = audioTime - 20; // Задержка только 20ms
-                        if (m_currentTime < 0) m_currentTime = 0;
+                        // Уменьшаем задержку для лучшей синхронизации, но не обновляем слишком часто
+                        if (audioTime > m_currentTime + 10) { // Обновляем только если разница больше 10ms
+                            m_currentTime = audioTime - 10; // Задержка только 10ms
+                            if (m_currentTime < 0) m_currentTime = 0;
+                        }
                     }
                     return result;
                 }
