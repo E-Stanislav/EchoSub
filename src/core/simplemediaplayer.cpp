@@ -29,6 +29,10 @@ SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
     , m_lastPosition(0)
 {
     setAcceptDrops(true); // Включаем drag-and-drop
+    
+    // Set focus policy to receive keyboard events
+    setFocusPolicy(Qt::StrongFocus);
+    
     // Создаем медиаплеер
     m_mediaPlayer = new QMediaPlayer(this);
     
@@ -368,16 +372,71 @@ void SimpleMediaPlayer::dropEvent(QDropEvent *event)
 
 void SimpleMediaPlayer::keyPressEvent(QKeyEvent *event)
 {
-    if (event->key() == Qt::Key_Escape && isFullScreen()) {
-        showNormal();
-        if (m_fullscreenButton) {
-            m_fullscreenButton->setText("⛶");
-            m_fullscreenButton->setToolTip("Во весь экран");
+    switch (event->key()) {
+    case Qt::Key_Space:
+        // Toggle play/pause
+        if (m_mediaPlayer) {
+            if (m_mediaPlayer->playbackState() == QMediaPlayer::PlayingState) {
+                pause();
+            } else {
+                play();
+            }
         }
         event->accept();
-        return;
+        break;
+    case Qt::Key_Left:
+        // Seek back 10 seconds
+        if (m_mediaPlayer) {
+            qint64 currentPos = m_mediaPlayer->position();
+            qint64 newPos = qMax(0LL, currentPos - 10000);
+            m_mediaPlayer->setPosition(newPos);
+        }
+        event->accept();
+        break;
+    case Qt::Key_Right:
+        // Seek forward 10 seconds
+        if (m_mediaPlayer) {
+            qint64 currentPos = m_mediaPlayer->position();
+            qint64 duration = m_mediaPlayer->duration();
+            qint64 newPos = qMin(duration, currentPos + 10000);
+            m_mediaPlayer->setPosition(newPos);
+        }
+        event->accept();
+        break;
+    case Qt::Key_Up:
+        // Increase volume
+        if (m_volumeSlider) {
+            int currentVolume = m_volumeSlider->value();
+            int newVolume = qMin(100, currentVolume + 10);
+            m_volumeSlider->setValue(newVolume);
+        }
+        event->accept();
+        break;
+    case Qt::Key_Down:
+        // Decrease volume
+        if (m_volumeSlider) {
+            int currentVolume = m_volumeSlider->value();
+            int newVolume = qMax(0, currentVolume - 10);
+            m_volumeSlider->setValue(newVolume);
+        }
+        event->accept();
+        break;
+    case Qt::Key_Escape:
+        if (isFullScreen()) {
+            showNormal();
+            if (m_fullscreenButton) {
+                m_fullscreenButton->setText("⛶");
+                m_fullscreenButton->setToolTip("Во весь экран");
+            }
+            event->accept();
+        } else {
+            QWidget::keyPressEvent(event);
+        }
+        break;
+    default:
+        QWidget::keyPressEvent(event);
+        break;
     }
-    QWidget::keyPressEvent(event);
 }
 
 void SimpleMediaPlayer::resizeEvent(QResizeEvent *event)

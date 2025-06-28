@@ -268,3 +268,58 @@ void MainWindow::showError(const QString &error)
 {
     QMessageBox::critical(this, "Error", error);
 }
+
+void MainWindow::keyPressEvent(QKeyEvent *event)
+{
+    switch (event->key()) {
+    case Qt::Key_Space:
+        // Toggle play/pause
+        if (m_mediaPlayer) {
+            if (m_isPlaying) {
+                m_mediaPlayer->pause();
+            } else {
+                m_mediaPlayer->play();
+            }
+        }
+        event->accept();
+        break;
+    case Qt::Key_Left:
+        // Seek back 10 seconds
+        if (m_mediaPlayer) {
+            qint64 currentPos = m_mediaPlayer->getPosition();
+            qint64 newPos = qMax(0LL, currentPos - 10000);
+            m_mediaPlayer->seek(newPos);
+        }
+        event->accept();
+        break;
+    case Qt::Key_Right:
+        // Seek forward 10 seconds
+        if (m_mediaPlayer) {
+            qint64 currentPos = m_mediaPlayer->getPosition();
+            qint64 duration = m_mediaPlayer->getDuration();
+            qint64 newPos = qMin(duration, currentPos + 10000);
+            m_mediaPlayer->seek(newPos);
+        }
+        event->accept();
+        break;
+    case Qt::Key_Up:
+        // Increase volume (if controls panel supports it)
+        if (m_controlsPanel) {
+            // This would need to be implemented in ControlsPanel
+            // For now, just accept the event
+        }
+        event->accept();
+        break;
+    case Qt::Key_Down:
+        // Decrease volume (if controls panel supports it)
+        if (m_controlsPanel) {
+            // This would need to be implemented in ControlsPanel
+            // For now, just accept the event
+        }
+        event->accept();
+        break;
+    default:
+        QMainWindow::keyPressEvent(event);
+        break;
+    }
+}

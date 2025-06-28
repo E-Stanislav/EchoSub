@@ -14,6 +14,7 @@
 #include <QStatusBar>
 #include <QMenuBar>
 #include <QToolBar>
+#include <QKeyEvent>
 
 #include "core/mediaplayer.h"
 #include "ui/videowidget.h"
@@ -32,6 +33,7 @@ protected:
     void dragEnterEvent(QDragEnterEvent *event) override;
     void dropEvent(QDropEvent *event) override;
     void closeEvent(QCloseEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
 
 private slots:
     void openFile();
