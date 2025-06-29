@@ -81,6 +81,8 @@ if(APPLE)
         MACOSX_BUNDLE TRUE
         MACOSX_BUNDLE_INFO_PLIST ${CMAKE_SOURCE_DIR}/Info.plist
     )
+    set(MACOSX_BUNDLE_ICON_FILE icon.icns)
+    set_source_files_properties(resources/icons/icon.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 endif()
 
 # Print configuration info
@@ -124,10 +126,14 @@ install(TARGETS simple_player DESTINATION bin)
 if(APPLE)
     set_target_properties(simple_player PROPERTIES
         MACOSX_BUNDLE TRUE
-        MACOSX_BUNDLE_INFO_PLIST ${CMAKE_SOURCE_DIR}/Info.plist
+        MACOSX_BUNDLE_INFO_PLIST ${CMAKE_SOURCE_DIR}/Info_simple_player.plist
+        MACOSX_BUNDLE_ICON_FILE icon.icns
     )
+    set_source_files_properties(resources/icons/icon.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 endif()
 
 message(STATUS "Simple Media Player Configuration:")
 message(STATUS "  Qt6 version: ${Qt6_VERSION}")
-message(STATUS "  Using built-in Qt multimedia components") 
+message(STATUS "  Using built-in Qt multimedia components")
+
+qt_add_resources(APP_ICONS resources/icons/icons.qrc) 

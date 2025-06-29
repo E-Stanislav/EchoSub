@@ -5,6 +5,7 @@
 #include <QStandardPaths>
 #include <QStyleFactory>
 #include <QMessageBox>
+#include <QIcon>
 
 #include "ui/mainwindow.h"
 
@@ -17,7 +18,11 @@ int main(int argc, char *argv[])
     app.setApplicationVersion("1.0.0");
     app.setOrganizationName("EchoSub");
     app.setOrganizationDomain("echosub.com");
-    
+
+    // Set application icon
+    QIcon appIcon(":/icons/app_image.png");
+    app.setWindowIcon(appIcon);
+
     // Set application style
     app.setStyle(QStyleFactory::create("Fusion"));
     
@@ -35,6 +40,7 @@ int main(int argc, char *argv[])
     
     // Create and show main window
     MainWindow window;
+    window.setWindowIcon(appIcon);
     window.show();
     
     // Open file if specified
