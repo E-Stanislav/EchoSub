@@ -10,6 +10,15 @@ class QLabel;
 class QLineEdit;
 class QFileDialog;
 
+struct ModelInfo {
+    QString name;
+    QString url;
+    QString size; // размер в человекочитаемом формате
+    
+    ModelInfo(const QString &n, const QString &u, const QString &s) 
+        : name(n), url(u), size(s) {}
+};
+
 class WhisperModelSettingsDialog : public QDialog {
     Q_OBJECT
 public:
@@ -30,7 +39,7 @@ private:
     void downloadModel(const QString &modelName, const QString &url);
     void deleteModel(const QString &modelName);
 
-    QMap<QString, QString> m_modelUrls; // modelName -> url
+    QList<ModelInfo> m_models; // отсортированный список моделей
     QMap<QString, QPushButton*> m_downloadButtons;
     QMap<QString, QPushButton*> m_deleteButtons;
     QMap<QString, QLabel*> m_statusLabels;

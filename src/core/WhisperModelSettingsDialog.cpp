@@ -16,20 +16,50 @@
 #include <QFileDialog>
 #include <QDesktopServices>
 #include <QUrl>
+#include <QRegularExpression>
+
+// Функция для парсинга размера модели в байты
+qint64 parseModelSize(const QString &sizeStr) {
+    QRegularExpression re(R"((\d+(?:\.\d+)?)\s*(MB|GB))");
+    QRegularExpressionMatch match = re.match(sizeStr);
+    if (match.hasMatch()) {
+        double value = match.captured(1).toDouble();
+        QString unit = match.captured(2);
+        if (unit == "GB") {
+            return static_cast<qint64>(value * 1024 * 1024 * 1024);
+        } else if (unit == "MB") {
+            return static_cast<qint64>(value * 1024 * 1024);
+        }
+    }
+    return 0;
+}
+
+// Функция для сортировки моделей по размеру
+void sortModelsBySize(QList<ModelInfo> &models) {
+    std::sort(models.begin(), models.end(), [](const ModelInfo &a, const ModelInfo &b) {
+        return parseModelSize(a.size) < parseModelSize(b.size);
+    });
+}
 
 WhisperModelSettingsDialog::WhisperModelSettingsDialog(QWidget *parent)
     : QDialog(parent)
 {
     QSettings s;
     m_modelDir = s.value("whisper/model_dir", QDir::currentPath() + "/models/whisper").toString();
-    m_modelUrls = {
-        {"tiny",   "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin"},
-        {"base",   "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin"},
-        {"small",  "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin"},
-        {"medium", "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin"},
-        {"large",  "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin"},
-        {"large-v3-turbo",  "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin"},
+    
+    // Модели с размерами (порядок не важен, будет отсортирован автоматически)
+    m_models = {
+        {"tiny",   "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin", "39 MB"},
+        {"base",   "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin", "142 MB"},
+        {"small",  "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin", "466 MB"},
+        {"medium", "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin", "1.42 GB"},
+        {"large",  "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin", "3.82 GB"},
+        {"large-v3-turbo",  "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin", "1.62 GB"},
     };
+    
+    // Автоматическая сортировка по размеру от меньшего к большему
+    sortModelsBySize(m_models);
+    
     setupUi();
     checkModelFiles();
 }
@@ -68,23 +98,24 @@ void WhisperModelSettingsDialog::setupUi()
 
     m_radioGroup = new QButtonGroup(this);
     int idx = 0;
-    for (const auto &model : m_modelUrls.keys()) {
+    for (const auto &modelInfo : m_models) {
         QHBoxLayout *row = new QHBoxLayout();
-        QRadioButton *radio = new QRadioButton(model, this);
+        QString displayName = modelInfo.name + " (" + modelInfo.size + ")";
+        QRadioButton *radio = new QRadioButton(displayName, this);
         m_radioGroup->addButton(radio, idx++);
         row->addWidget(radio);
         QLabel *status = new QLabel("", this);
-        m_statusLabels[model] = status;
+        m_statusLabels[modelInfo.name] = status;
         row->addWidget(status);
         QPushButton *download = new QPushButton("Скачать", this);
-        m_downloadButtons[model] = download;
+        m_downloadButtons[modelInfo.name] = download;
         row->addWidget(download);
         QPushButton *deleteBtn = new QPushButton("Удалить", this);
-        m_deleteButtons[model] = deleteBtn;
+        m_deleteButtons[modelInfo.name] = deleteBtn;
         row->addWidget(deleteBtn);
         mainLayout->addLayout(row);
-        connect(download, &QPushButton::clicked, this, [this, model]() { onDownloadClicked(model); });
-        connect(deleteBtn, &QPushButton::clicked, this, [this, model]() { onDeleteClicked(model); });
+        connect(download, &QPushButton::clicked, this, [this, modelInfo]() { onDownloadClicked(modelInfo.name); });
+        connect(deleteBtn, &QPushButton::clicked, this, [this, modelInfo]() { onDeleteClicked(modelInfo.name); });
     }
     connect(m_radioGroup, QOverload<QAbstractButton *>::of(&QButtonGroup::buttonClicked), this, &WhisperModelSettingsDialog::onModelSelected);
     QPushButton *okBtn = new QPushButton("OK", this);
@@ -102,22 +133,22 @@ void WhisperModelSettingsDialog::checkModelFiles()
 {
     QDir modelDir(m_modelDir);
     if (!modelDir.exists()) modelDir.mkpath(".");
-    for (const auto &model : m_modelUrls.keys()) {
-        QString filePath = modelDir.filePath("ggml-" + model + ".bin");
+    for (const auto &modelInfo : m_models) {
+        QString filePath = modelDir.filePath("ggml-" + modelInfo.name + ".bin");
         if (QFile::exists(filePath)) {
-            m_statusLabels[model]->setText("Скачано");
-            m_downloadButtons[model]->setEnabled(false);
-            m_deleteButtons[model]->setEnabled(true);
+            m_statusLabels[modelInfo.name]->setText("Скачано");
+            m_downloadButtons[modelInfo.name]->setEnabled(false);
+            m_deleteButtons[modelInfo.name]->setEnabled(true);
         } else {
-            m_statusLabels[model]->setText("Не скачано");
-            m_downloadButtons[model]->setEnabled(true);
-            m_deleteButtons[model]->setEnabled(false);
+            m_statusLabels[modelInfo.name]->setText("Не скачано");
+            m_downloadButtons[modelInfo.name]->setEnabled(true);
+            m_deleteButtons[modelInfo.name]->setEnabled(false);
         }
     }
     QSettings s;
     QString sel = s.value("whisper/selected_model", "base").toString();
     for (auto *btn : m_radioGroup->buttons()) {
-        btn->setChecked(btn->text() == sel);
+        btn->setChecked(btn->text().contains(sel));
     }
 }
 
@@ -154,7 +185,7 @@ void WhisperModelSettingsDialog::onModelDirBrowseClicked()
 void WhisperModelSettingsDialog::downloadModel(const QString &modelName, const QString &url)
 {
     QDir modelDir(m_modelDirEdit ? m_modelDirEdit->text() : m_modelDir);
-    QString filePath = modelDir.filePath(modelName);
+    QString filePath = modelDir.filePath("ggml-" + modelName + ".bin");
     QNetworkAccessManager *nam = new QNetworkAccessManager(this);
     QNetworkReply *reply = nam->get(QNetworkRequest(QUrl(url)));
     QProgressDialog *progress = new QProgressDialog("Скачивание " + modelName, "Отмена", 0, 100, this);
@@ -184,8 +215,21 @@ void WhisperModelSettingsDialog::downloadModel(const QString &modelName, const Q
 
 void WhisperModelSettingsDialog::onDownloadClicked(const QString &modelName)
 {
-    QString url = m_modelUrls[modelName];
-    QDir modelDir(QDir::currentPath() + "/models/whisper");
+    // Находим URL для указанной модели
+    QString url;
+    for (const auto &modelInfo : m_models) {
+        if (modelInfo.name == modelName) {
+            url = modelInfo.url;
+            break;
+        }
+    }
+    
+    if (url.isEmpty()) {
+        QMessageBox::warning(this, "Ошибка", "Модель не найдена: " + modelName);
+        return;
+    }
+    
+    QDir modelDir(m_modelDirEdit ? m_modelDirEdit->text() : m_modelDir);
     QString filePath = modelDir.filePath("ggml-" + modelName + ".bin");
     QNetworkAccessManager *nam = new QNetworkAccessManager(this);
     QNetworkReply *reply = nam->get(QNetworkRequest(QUrl(url)));
@@ -218,7 +262,7 @@ void WhisperModelSettingsDialog::onModelSelected()
 {
     QAbstractButton *btn = m_radioGroup->checkedButton();
     if (btn) {
-        m_selectedModel = btn->text();
+        m_selectedModel = btn->text().split(" (").first();
         QSettings s;
         s.setValue("whisper/selected_model", m_selectedModel);
     }
@@ -245,7 +289,7 @@ void WhisperModelSettingsDialog::onDeleteClicked(const QString &modelName)
 
 void WhisperModelSettingsDialog::deleteModel(const QString &modelName)
 {
-    QDir modelDir(QDir::currentPath() + "/models/whisper");
+    QDir modelDir(m_modelDirEdit ? m_modelDirEdit->text() : m_modelDir);
     QString filePath = modelDir.filePath("ggml-" + modelName + ".bin");
     
     if (QFile::exists(filePath)) {
