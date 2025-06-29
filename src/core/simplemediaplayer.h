@@ -72,7 +72,6 @@ private:
     QPushButton *m_stopButton;
     QPushButton *m_openButton;
     QPushButton *m_resetButton;
-    QPushButton *m_fullscreenButton;
     QPushButton *m_settingsButton;
     QPushButton *m_subtitlesButton;
     QPushButton *m_subtitlesOverlayButton;

@@ -62,10 +62,6 @@ SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
     m_resetButton->setIcon(style()->standardIcon(QStyle::SP_DialogResetButton));
     m_resetButton->setToolTip("Reset");
     
-    m_fullscreenButton = new QPushButton(this);
-    m_fullscreenButton->setText("⛶");
-    m_fullscreenButton->setToolTip("Во весь экран");
-    
     m_settingsButton = new QPushButton(this);
     m_settingsButton->setIcon(style()->standardIcon(QStyle::SP_FileDialogDetailedView));
     m_settingsButton->setToolTip("Настройки");
@@ -101,22 +97,23 @@ SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
     mainLayout->addWidget(m_videoWidget);
     mainLayout->addWidget(m_infoLabel);
-    
+
+    // Новый layout для слайдера, времени и громкости
+    QHBoxLayout *sliderLayout = new QHBoxLayout();
+    sliderLayout->addWidget(m_positionSlider, /*stretch=*/2);
+    sliderLayout->addWidget(m_timeLabel);
+    sliderLayout->addWidget(new QLabel("Vol:", this));
+    sliderLayout->addWidget(m_volumeSlider, /*stretch=*/0);
+    mainLayout->addLayout(sliderLayout);
+
     QHBoxLayout *controlsLayout = new QHBoxLayout();
     controlsLayout->addWidget(m_playButton);
     controlsLayout->addWidget(m_stopButton);
     controlsLayout->addWidget(m_openButton);
     controlsLayout->addWidget(m_resetButton);
-    controlsLayout->addWidget(m_fullscreenButton);
     controlsLayout->addWidget(m_settingsButton);
     controlsLayout->addWidget(m_subtitlesButton);
     controlsLayout->addWidget(m_subtitlesOverlayButton);
-    
-    controlsLayout->addWidget(m_positionSlider, /*stretch=*/2); // Слайдер перемотки занимает больше места
-    controlsLayout->addWidget(m_timeLabel);
-    controlsLayout->addWidget(new QLabel("Vol:", this));
-    controlsLayout->addWidget(m_volumeSlider, /*stretch=*/0); // Слайдер громкости не растягивается
-    
     mainLayout->addLayout(controlsLayout);
     
     // Подключаем сигналы
@@ -152,18 +149,6 @@ SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
     connect(m_positionSlider, &QSlider::sliderMoved, this, &SimpleMediaPlayer::onSliderMoved);
     
     connect(m_volumeSlider, &QSlider::valueChanged, m_audioOutput, &QAudioOutput::setVolume);
-    
-    connect(m_fullscreenButton, &QPushButton::clicked, [this]() {
-        if (isFullScreen()) {
-            showNormal();
-            m_fullscreenButton->setText("⛶");
-            m_fullscreenButton->setToolTip("Во весь экран");
-        } else {
-            showFullScreen();
-            m_fullscreenButton->setText("❐");
-            m_fullscreenButton->setToolTip("Выйти из полноэкранного режима");
-        }
-    });
     
     connect(m_settingsButton, &QPushButton::clicked, this, [this]() {
         WhisperModelSettingsDialog dlg(this);
@@ -426,16 +411,8 @@ void SimpleMediaPlayer::keyPressEvent(QKeyEvent *event)
         if (event->modifiers() & Qt::ControlModifier) {
             if (isFullScreen()) {
                 showNormal();
-                if (m_fullscreenButton) {
-                    m_fullscreenButton->setText("⛶");
-                    m_fullscreenButton->setToolTip("Во весь экран");
-                }
             } else {
                 showFullScreen();
-                if (m_fullscreenButton) {
-                    m_fullscreenButton->setText("❐");
-                    m_fullscreenButton->setToolTip("Выйти из полноэкранного режима");
-                }
             }
             event->accept();
         } else {
@@ -445,10 +422,6 @@ void SimpleMediaPlayer::keyPressEvent(QKeyEvent *event)
     case Qt::Key_Escape:
         if (isFullScreen()) {
             showNormal();
-            if (m_fullscreenButton) {
-                m_fullscreenButton->setText("⛶");
-                m_fullscreenButton->setToolTip("Во весь экран");
-            }
             event->accept();
         } else {
             QWidget::keyPressEvent(event);
