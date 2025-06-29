@@ -7,6 +7,8 @@ class QPushButton;
 class QButtonGroup;
 class QRadioButton;
 class QLabel;
+class QLineEdit;
+class QFileDialog;
 
 class WhisperModelSettingsDialog : public QDialog {
     Q_OBJECT
@@ -19,6 +21,8 @@ private slots:
     void onDeleteClicked(const QString &modelName);
     void onModelSelected();
     void updateModelStatus();
+    void onCustomDownloadClicked();
+    void onModelDirBrowseClicked();
 
 private:
     void setupUi();
@@ -32,4 +36,9 @@ private:
     QMap<QString, QLabel*> m_statusLabels;
     QButtonGroup *m_radioGroup;
     QString m_selectedModel;
+    QLineEdit *m_customUrlEdit;
+    QPushButton *m_customDownloadBtn;
+    QLineEdit *m_modelDirEdit;
+    QPushButton *m_modelDirBrowseBtn;
+    QString m_modelDir;
 }; 
