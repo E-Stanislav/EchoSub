@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "🎵 EchoSub - Installing dependencies on macOS..."
+echo "🎵 Simple Player - Installing dependencies on macOS..."
 
 # Check if Homebrew is installed
 if ! command -v brew &> /dev/null; then
@@ -18,10 +18,6 @@ brew update
 echo "📦 Installing Qt 6..."
 brew install qt6
 
-# Install FFmpeg
-echo "🎬 Installing FFmpeg..."
-brew install ffmpeg
-
 # Install CMake
 echo "🔨 Installing CMake..."
 brew install cmake
@@ -37,4 +33,4 @@ echo "1. mkdir build"
 echo "2. cd build"
 echo "3. cmake .."
 echo "4. cmake --build ."
-echo "5. ./bin/echosub" 
+echo "5. ./bin/simple_player" 

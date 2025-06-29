@@ -9,7 +9,7 @@
     <key>CFBundleIconFile</key>
     <string>icon.icns</string>
     <key>CFBundleIdentifier</key>
-    <string>com.echosub.simpleplayer</string>
+    <string>com.simpleplayer.app</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
