@@ -22,11 +22,14 @@
 #include <QLabel>
 #include "ui/videowidget.h"
 #include <QGraphicsVideoItem>
+#include <QComboBox>
+#include <QIcon>
 
 SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
     : QWidget(parent)
     , m_sliderPressed(false)
     , m_lastPosition(0)
+    , m_playbackRate(1.0)
 {
     setAcceptDrops(true); // Включаем drag-and-drop
     
@@ -93,6 +96,21 @@ SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
     m_volumeSlider->setFixedWidth(100); // Делаем слайдер громкости уже
     
     m_timeLabel = new QLabel("00:00 / 00:00", this);
+
+    // --- Скорость воспроизведения ---
+    m_speedLabel = new QLabel(this);
+    m_speedLabel->setText("Скорость:");
+    m_speedComboBox = new QComboBox(this);
+    m_speedComboBox->setFixedWidth(90);
+    m_speedComboBox->addItem(QIcon::fromTheme("media-playback-start"), "0.5x", 0.5);
+    m_speedComboBox->addItem(QIcon::fromTheme("media-playback-start"), "0.75x", 0.75);
+    m_speedComboBox->addItem(QIcon::fromTheme("media-playback-start"), "1x", 1.0);
+    m_speedComboBox->addItem(QIcon::fromTheme("media-playback-start"), "1.25x", 1.25);
+    m_speedComboBox->addItem(QIcon::fromTheme("media-playback-start"), "1.5x", 1.5);
+    m_speedComboBox->addItem(QIcon::fromTheme("media-playback-start"), "2x", 2.0);
+    m_speedComboBox->setCurrentIndex(2); // 1x по умолчанию
+    m_speedComboBox->setToolTip("Изменить скорость воспроизведения видео");
+    connect(m_speedComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SimpleMediaPlayer::onPlaybackRateChanged);
     
     m_infoLabel = new QLabel("Drag and drop a media file here or click 'Open File' button", this);
     m_infoLabel->setAlignment(Qt::AlignCenter);
@@ -109,6 +127,10 @@ SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
     sliderLayout->addWidget(m_timeLabel);
     sliderLayout->addWidget(new QLabel("Vol:", this));
     sliderLayout->addWidget(m_volumeSlider, /*stretch=*/0);
+    // --- Добавляем скорость справа от громкости ---
+    sliderLayout->addSpacing(10);
+    sliderLayout->addWidget(m_speedLabel);
+    sliderLayout->addWidget(m_speedComboBox);
     mainLayout->addLayout(sliderLayout);
 
     QHBoxLayout *controlsLayout = new QHBoxLayout();
@@ -858,4 +880,27 @@ void SimpleMediaPlayer::toggleSubtitlesVisibility(bool visible)
     if (m_videoWidget) {
         static_cast<VideoGraphicsView*>(m_videoWidget)->setSubtitlesVisible(visible);
     }
+}
+
+// --- Методы управления скоростью ---
+double SimpleMediaPlayer::playbackRate() const {
+    return m_playbackRate;
+}
+
+void SimpleMediaPlayer::setPlaybackRate(double rate) {
+    m_playbackRate = rate;
+    if (m_mediaPlayer) {
+        m_mediaPlayer->setPlaybackRate(rate);
+    }
+    // Обновляем тултип и иконку
+    int idx = m_speedComboBox->findData(rate);
+    if (idx >= 0) {
+        m_speedComboBox->setCurrentIndex(idx);
+    }
+    m_speedComboBox->setToolTip(QString("Текущая скорость: %1x").arg(rate, 0, 'f', 2));
+}
+
+void SimpleMediaPlayer::onPlaybackRateChanged(int index) {
+    double rate = m_speedComboBox->itemData(index).toDouble();
+    setPlaybackRate(rate);
 } 

@@ -18,6 +18,7 @@
 #include <QTimer>
 #include <QMap>
 #include <QCheckBox>
+#include <QComboBox>
 #include "ui/videowidget.h"
 
 class WhisperModelSettingsDialog;
@@ -41,6 +42,8 @@ public:
     bool isPlaying() const;
     void createSubtitles();
     void createSubtitlesOverlay();
+    double playbackRate() const;
+    void setPlaybackRate(double rate);
 
 signals:
     void positionChanged(qint64 position);
@@ -55,6 +58,7 @@ private slots:
     void onSliderPressed();
     void onSliderReleased();
     void onSliderMoved(int value);
+    void onPlaybackRateChanged(int index);
 
 protected:
     void dragEnterEvent(QDragEnterEvent *event) override;
@@ -81,6 +85,8 @@ private:
     QSlider *m_volumeSlider;
     QLabel *m_timeLabel;
     QLabel *m_infoLabel;
+    QLabel *m_speedLabel;
+    QComboBox *m_speedComboBox;
     
     bool m_sliderPressed;
     qint64 m_lastPosition;
@@ -89,6 +95,9 @@ private:
     QMap<qint64, QString> parseSrtData(const QByteArray &srtData);
     void displaySubtitles(const QMap<qint64, QString> &subtitles);
     void toggleSubtitlesVisibility(bool show);
+    
+    // --- Элементы управления скоростью ---
+    double m_playbackRate = 1.0;
 };
 
 #endif // SIMPLEMEDIAPLAYER_H 
