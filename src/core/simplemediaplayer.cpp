@@ -74,6 +74,11 @@ SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
     m_subtitlesOverlayButton->setText("📝");
     m_subtitlesOverlayButton->setToolTip("Создать субтитры поверх видео (Whisper)");
     
+    m_showSubtitlesCheckBox = new QCheckBox(this);
+    m_showSubtitlesCheckBox->setText("Показать субтитры");
+    m_showSubtitlesCheckBox->setToolTip("Показать/скрыть субтитры");
+    m_showSubtitlesCheckBox->setChecked(true); // По умолчанию субтитры показаны
+    
     m_positionSlider = new QSlider(Qt::Horizontal, this);
     m_positionSlider->setMinimum(0);
     m_positionSlider->setMaximum(0);
@@ -114,6 +119,7 @@ SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
     controlsLayout->addWidget(m_settingsButton);
     controlsLayout->addWidget(m_subtitlesButton);
     controlsLayout->addWidget(m_subtitlesOverlayButton);
+    controlsLayout->addWidget(m_showSubtitlesCheckBox);
     mainLayout->addLayout(controlsLayout);
     
     // Подключаем сигналы
@@ -158,6 +164,8 @@ SimpleMediaPlayer::SimpleMediaPlayer(QWidget *parent)
     connect(m_subtitlesButton, &QPushButton::clicked, this, &SimpleMediaPlayer::createSubtitles);
     
     connect(m_subtitlesOverlayButton, &QPushButton::clicked, this, &SimpleMediaPlayer::createSubtitlesOverlay);
+    
+    connect(m_showSubtitlesCheckBox, &QCheckBox::toggled, this, &SimpleMediaPlayer::toggleSubtitlesVisibility);
     
     // Устанавливаем размер окна
     resize(800, 600);
@@ -842,5 +850,12 @@ void SimpleMediaPlayer::displaySubtitles(const QMap<qint64, QString> &subtitles)
 {
     if (m_videoWidget) {
         m_videoWidget->setSubtitles(subtitles);
+    }
+}
+
+void SimpleMediaPlayer::toggleSubtitlesVisibility(bool visible)
+{
+    if (m_videoWidget) {
+        static_cast<VideoGraphicsView*>(m_videoWidget)->setSubtitlesVisible(visible);
     }
 } 

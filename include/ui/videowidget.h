@@ -82,6 +82,7 @@ public:
     void setSubtitles(const QMap<qint64, QString> &subtitles);
     void updateSubtitlePosition(qint64 position);
     void clearSubtitles();
+    void setSubtitlesVisible(bool visible);
     QGraphicsVideoItem* videoItem() const;
 protected:
     void resizeEvent(QResizeEvent *event) override;
@@ -90,4 +91,5 @@ private:
     QGraphicsTextItem *m_subtitleItem;
     QGraphicsRectItem *m_subtitleBg;
     QMap<qint64, QString> m_subtitles;
+    bool m_subtitlesVisible;
 }; 

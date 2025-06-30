@@ -17,6 +17,7 @@
 #include <QKeyEvent>
 #include <QTimer>
 #include <QMap>
+#include <QCheckBox>
 #include "ui/videowidget.h"
 
 class WhisperModelSettingsDialog;
@@ -75,6 +76,7 @@ private:
     QPushButton *m_settingsButton;
     QPushButton *m_subtitlesButton;
     QPushButton *m_subtitlesOverlayButton;
+    QCheckBox *m_showSubtitlesCheckBox;
     QSlider *m_positionSlider;
     QSlider *m_volumeSlider;
     QLabel *m_timeLabel;
@@ -86,6 +88,7 @@ private:
     // Методы для работы с субтитрами
     QMap<qint64, QString> parseSrtData(const QByteArray &srtData);
     void displaySubtitles(const QMap<qint64, QString> &subtitles);
+    void toggleSubtitlesVisibility(bool show);
 };
 
 #endif // SIMPLEMEDIAPLAYER_H 

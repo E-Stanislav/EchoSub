@@ -240,7 +240,7 @@ void DraggableVideoWidget::paintEvent(QPaintEvent *event) {
 
 // Реализация методов VideoGraphicsView
 VideoGraphicsView::VideoGraphicsView(QWidget *parent)
-    : QGraphicsView(parent), m_videoItem(new QGraphicsVideoItem()), m_subtitleItem(new QGraphicsTextItem()) {
+    : QGraphicsView(parent), m_videoItem(new QGraphicsVideoItem()), m_subtitleItem(new QGraphicsTextItem()), m_subtitlesVisible(true) {
     setAcceptDrops(true);
     setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -273,12 +273,28 @@ void VideoGraphicsView::clearSubtitles() {
     m_subtitleItem->setPlainText("");
 }
 
+void VideoGraphicsView::setSubtitlesVisible(bool visible) {
+    m_subtitlesVisible = visible;
+    if (m_subtitleItem) {
+        m_subtitleItem->setVisible(visible);
+    }
+    if (m_subtitleBg) {
+        m_subtitleBg->setVisible(visible);
+    }
+}
+
 void VideoGraphicsView::updateSubtitlePosition(qint64 position) {
     QString text;
     for (auto it = m_subtitles.constBegin(); it != m_subtitles.constEnd(); ++it) {
         if (position >= it.key()) text = it.value();
         else break;
     }
+    
+    // Если субтитры скрыты, очищаем текст
+    if (!m_subtitlesVisible) {
+        text.clear();
+    }
+    
     m_subtitleItem->setPlainText(text);
 
     // Определяем количество строк
@@ -308,8 +324,8 @@ void VideoGraphicsView::updateSubtitlePosition(qint64 position) {
         delete m_subtitleBg;
         m_subtitleBg = nullptr;
     }
-    // Добавляем новый фон под текст
-    if (!text.isEmpty()) {
+    // Добавляем новый фон под текст только если субтитры видимы и есть текст
+    if (!text.isEmpty() && m_subtitlesVisible) {
         QRectF bgRect = m_subtitleItem->boundingRect().adjusted(-16, -8, 16, 8);
         // Делаем минимальную высоту фона
         if (bgRect.height() < 32) {
